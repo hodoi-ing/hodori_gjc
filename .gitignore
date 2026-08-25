@@ -1,25 +1,48 @@
-# === 보안 필수 제외 항목 ===
-.env
-.env.*
+# ========================================================
+# 🛡️ LEVEL MAX SECURITY GITIGNORE FOR HODORI_GJC
+# ========================================================
+
+# 1. API 키, 비밀 토큰, 인증서 (절대 유출 금지)
+*.env
+*.env.*
 *.key
 *.pem
 *.pfx
+*.asc
+*.pub
 *.token
+*.credentials
 config.yml
 mcp.json
 mcp.json.bak*
+credential-auto-import-state.json
 
-# === Gajae Code / AI 하네스 임시 및 캐시 파일 ===
+# 2. 개인정보 & 민감 설정 파일
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+gjc-crash*
+gjc-error*
+*.log
+ibus.log
+
+# 3. 임시 실행 스냅샷 & 에이전트 캐시
+gjc-shell-snapshots-*/
+gjc-python-runner-*/
+gjc-local/
 .gjc/
 .gjc-free/
 .gjc_cache/
-gjc-crash*
-gjc-error*
-*.db
-*.sqlite
-*.sqlite3
+.gjc-recovery/
+resident-cache/
+sidecar-cache/
+terminal-sessions/
+blobs/
+sessions/
 
-# === 파이썬 & 시스템 임시 파일 ===
+# 4. 언어별 임시/빌드 파일
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -27,3 +50,6 @@ __pycache__/
 venv/
 node_modules/
 .DS_Store
+dist/
+build/
+*.egg-info/
