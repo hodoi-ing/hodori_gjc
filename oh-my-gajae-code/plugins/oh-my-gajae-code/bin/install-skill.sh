@@ -1,0 +1,714 @@
+#!/usr/bin/env bash
+# Install oh-my-gajae-code SKILLs and slash COMMANDs as NATIVE gjc capabilities.
+#
+# WHY native install (and why command files live in templates/, not commands/):
+#   gjc 0.9.x auto-exposes a marketplace plugin's convention `commands/*.md` as
+#   `<plugin>:<name>` slash commands (claude-plugins provider). For this suite that
+#   would surface a second, wrongly-namespaced `oh-my-gajae-code:*` command set alongside
+#   the canonical `/omg:*`. To keep exactly ONE command surface, the command bodies
+#   live in `templates/` — a NON-convention dir gjc never auto-registers — and this
+#   installer copies them into the native commands dir with the `omg:` prefix.
+#   (Plugin SKILLs do not surface as slash commands, so skills/ stays a convention dir.)
+#
+#   canonical commands : templates/<name>.md  → ~/.gjc/agent/commands/omg:<name>.md → /omg:<name>
+#   catalog            : templates/omg.md     → ~/.gjc/agent/commands/omg.md        → /omg
+#   skills             : skills/<name>/SKILL.md → ~/.gjc/agent/skills/<name>/SKILL.md
+#
+# Installation is driven by the EXPECTED_* manifests below (not a directory scan), so a
+# missing expected file fails the WHOLE install with a missing list — never "copy what's there".
+#
+# Usage:
+#   install-skill.sh all [user|project]
+#   install-skill.sh all uninstall [user|project]
+#   install-skill.sh <name> [user|project|uninstall [user|project]]
+#   install-skill.sh uninstall [user|project]        # uninstall everything
+#
+# After installing, open a NEW gjc session (or run `/move .`) to rebuild the palette.
+set -euo pipefail
+
+# Guard: a path-like arg means a glob matched the wrong/multiple plugin folders
+# (cache is <marketplace>___<plugin>___<ver>; a bare *marketplace* glob hits every
+# plugin). Abort with the correct, plugin-scoped invocation.
+for _a in "$@"; do
+  case "$_a" in
+    */*|*install-skill.sh)
+      echo "❌ '$_a' looks like a path, not an argument — a glob likely matched the wrong plugin folder." >&2
+      echo "   Repair or upgrade through the hardened suite installer instead:" >&2
+      echo "   curl -fsSL https://raw.githubusercontent.com/devswha/oh-my-gajae-code/main/install.sh | bash" >&2
+      exit 2 ;;
+  esac
+done
+
+PLUGIN_ROOT="$(cd -P "$(dirname "$0")/.." && pwd -P)"
+
+# ── EXPECTED manifest (the single source of truth for a complete install) ────────────
+EXPECTED_SKILLS=(no-english extragoal insane-review insane-search gpt-image)
+EXPECTED_COMMANDS=(omg setup no-english insane-review gpt-image)
+EXPECTED_RUNTIMES=()
+INSANE_SEARCH_ASSETS=(
+  bin/insane_search.py
+  skills/insane-search/engine/__init__.py
+  skills/insane-search/engine/__main__.py
+  skills/insane-search/engine/content_safety.py
+  skills/insane-search/engine/executor.py
+  skills/insane-search/engine/fetch_chain.py
+  skills/insane-search/engine/learning.py
+  skills/insane-search/engine/observations_log.py
+  skills/insane-search/engine/phase0.py
+  skills/insane-search/engine/safety.py
+  skills/insane-search/engine/transport.py
+  skills/insane-search/engine/url_transforms.py
+  skills/insane-search/engine/validators.py
+  skills/insane-search/engine/waf_detector.py
+  skills/insane-search/engine/waf_profiles.yaml
+  skills/insane-search/references/upstream.md
+  skills/insane-search/references/upstream-LICENSE
+)
+GPT_IMAGE_ASSETS=(
+  bin/gpt_image_web.py
+  bin/cdp_lock.py
+)
+INSANE_REVIEW_ASSETS=(
+  bin/pack_and_ask.py
+  bin/cdp_lock.py
+)
+# Upgrades sweep only native files and dedicated runtime state owned by capabilities
+# retired from this suite.
+REMOVED_SKILLS=(gate-briefing korean-first workflow-eta time-left codex-deepwork codex-app-launch codex-app-cdp codex-cli-ask lazycodex lazycodex-gjc tower worktree gajae-app multivendor-presets preset-pack release-gate easy-answer plain-layer branch-flow gjc-bugwatch session-observer adaptive-response deep-onboarding multi-harness-research ouroboros)
+REMOVED_COMMANDS=(fable time-left codex-run codex-app-launch codex-app-ask codex-ask lazycodex-setup lazycodex-work lazycodex-gjc tower-setup gajae-app presets preset-pack release easy easy-always plain branchflow-always worktree bugwatch-scan session-observer gate gate-always deep-onboarding multi-harness ouroboros-setup)
+# Pre-0.8.1 native files that upgrades must sweep away: the 17 one-release deprecation
+# tombstones shipped by 0.8.0 (removed in 0.8.1). Old `oh-my-gjc:<name>.md` aliases are
+# covered separately by the explicit historically-owned alias inventory below.
+LEGACY_COMMANDS=('codex-app-control:ask' 'codex-app-control:launch' 'codex-cli-control:ask' \
+                 'codex-deepwork:run' 'gjc-bugwatch:scan' 'insane-review:review' \
+                 'lazycodex:setup' 'lazycodex:work' 'oh-my-gjc:branchflow-always' \
+                 'oh-my-gjc:easy-always' 'oh-my-gjc:easy' 'oh-my-gjc:fable' \
+                 'oh-my-gjc:gate-always' 'oh-my-gjc:gate' 'oh-my-gjc:presets' \
+                 'oh-my-gjc:setup' 'tower:setup')
+# Only commands that actually shipped under the former suite namespace are owned aliases.
+# New capabilities must never expand this destructive cleanup inventory.
+LEGACY_OH_MY_GJC_ALIASES=(omg setup gate gate-always no-english insane-review deep-onboarding multi-harness)
+
+skills_dir()   { if [ "$1" = project ]; then echo "$PWD/.gjc/skills";   else echo "$HOME/.gjc/agent/skills";   fi; }
+commands_dir() { if [ "$1" = project ]; then echo "$PWD/.gjc/commands"; else echo "$HOME/.gjc/agent/commands"; fi; }
+prepare_native_surface_paths() { # $1=scope $2=create|verify
+  local path
+  local -a paths=("$(skills_dir "$1")" "$(commands_dir "$1")")
+  for path in "${paths[@]}"; do
+    reject_symlinked_components "$path" || return 1
+    if [ -e "$path" ] && { [ ! -d "$path" ] || [ -L "$path" ]; }; then
+      echo "❌ install FAILED — native surface path is not a directory: $path" >&2
+      return 1
+    fi
+  done
+  if [ "$2" = create ]; then
+    for path in "${paths[@]}"; do mkdir -p "$path" || return 1; done
+    for path in "${paths[@]}"; do reject_symlinked_components "$path" || return 1; done
+  fi
+}
+suite_runtime_dir() {
+  case "$1" in
+    user)    printf '%s\n' "$HOME/.gjc/agent/runtimes/oh-my-gajae-code" ;;
+    project) printf '%s\n' "$PWD/.gjc/runtimes/oh-my-gajae-code" ;;
+    *)       return 2 ;;
+  esac
+}
+reject_symlinked_components() { # $1=absolute path — never follow a binding path component
+  local path="$1" current="/" component
+  local -a components
+  case "$path" in
+    /*) ;;
+    *) echo "❌ install FAILED — suite runtime binding path is not absolute: $path" >&2; return 1 ;;
+  esac
+  IFS=/ read -r -a components <<<"${path#/}"
+  for component in "${components[@]}"; do
+    [ -n "$component" ] || continue
+    current="${current%/}/$component"
+    if [ -L "$current" ]; then
+      echo "❌ install FAILED — suite runtime binding path contains a symlink: $current" >&2
+      return 1
+    fi
+  done
+}
+prepare_suite_runtime_parent() { # $1=scope
+  local parent
+  parent="$(suite_runtime_dir "$1")" || return 1
+  reject_symlinked_components "$parent" || return 1
+  if ! mkdir -p "$parent"; then
+    echo "❌ install FAILED — cannot create suite runtime binding parent: $parent" >&2
+    return 1
+  fi
+  reject_symlinked_components "$parent" || return 1
+  if [ ! -d "$parent" ] || [ -L "$parent" ]; then
+    echo "❌ install FAILED — suite runtime binding parent is not a directory: $parent" >&2
+    return 1
+  fi
+  if [ -O "$parent" ] && ! chmod 700 "$parent"; then
+    echo "❌ install FAILED — cannot make suite runtime binding parent private: $parent" >&2
+    return 1
+  fi
+  printf '%s\n' "$parent"
+}
+install_suite_root_binding() { # $1=scope — atomically bind native assets to this exact installed suite root
+  local parent root temp
+  parent="$(prepare_suite_runtime_parent "$1")" || return 1
+  root="$parent/root"
+  reject_symlinked_components "$root" || return 1
+  if [ -e "$root" ] && { [ ! -f "$root" ] || [ -L "$root" ]; }; then
+    echo "❌ install FAILED — suite runtime binding is malformed: $root" >&2
+    return 1
+  fi
+  temp="$(mktemp "$parent/.root.XXXXXX")" || {
+    echo "❌ install FAILED — cannot create suite runtime binding temp file: $parent" >&2
+    return 1
+  }
+  if ! printf '%s\n' "$PLUGIN_ROOT" > "$temp" || ! chmod 600 "$temp" || [ "$(<"$temp")" != "$PLUGIN_ROOT" ]; then
+    rm -f "$temp"
+    echo "❌ install FAILED — cannot write exact suite runtime binding: $root" >&2
+    return 1
+  fi
+  if ! mv -f "$temp" "$root"; then
+    rm -f "$temp"
+    echo "❌ install FAILED — cannot atomically install suite runtime binding: $root" >&2
+    return 1
+  fi
+  echo "✓ bound suite assets ($1): $root"
+}
+uninstall_suite_root_binding() { # $1=scope — remove only this suite's root binding
+  local parent root
+  parent="$(suite_runtime_dir "$1")" || return 1
+  root="$parent/root"
+  reject_symlinked_components "$root" || return 1
+  if [ -L "$root" ] || { [ -e "$root" ] && [ ! -f "$root" ]; }; then
+    echo "❌ uninstall FAILED — suite runtime binding is malformed: $root" >&2
+    return 1
+  fi
+  if [ -e "$root" ] &&
+     { ! private_file "$root" 600 || [ "$(<"$root")" != "$PLUGIN_ROOT" ]; }; then
+    echo "❌ uninstall FAILED — suite runtime binding is not owned by this installed suite: $root" >&2
+    return 1
+  fi
+  rm -f "$root"
+  echo "✓ removed suite runtime binding ($1): $root"
+}
+
+stat_uid() {
+  if stat -c '%u' "$1" >/dev/null 2>&1; then stat -c '%u' "$1"; else stat -f '%u' "$1"; fi
+}
+stat_mode() {
+  if stat -c '%a' "$1" >/dev/null 2>&1; then stat -c '%a' "$1"; else stat -f '%Lp' "$1"; fi
+}
+stat_links() {
+  if stat -c '%h' "$1" >/dev/null 2>&1; then stat -c '%h' "$1"; else stat -f '%l' "$1"; fi
+}
+private_file() { # $1=path $2=required octal mode
+  local owner links mode
+  [ -f "$1" ] && [ ! -L "$1" ] || return 1
+  owner="$(stat_uid "$1")"
+  links="$(stat_links "$1")"
+  mode="$(stat_mode "$1")"
+  [ "$owner" = "$(id -u)" ] && [ "$links" = 1 ] && [ "$mode" = "$2" ]
+}
+private_directory() { # $1=path $2=required octal mode
+  local owner mode
+  [ -d "$1" ] && [ ! -L "$1" ] || return 1
+  owner="$(stat_uid "$1")"
+  mode="$(stat_mode "$1")"
+  [ "$owner" = "$(id -u)" ] && [ "$mode" = "$2" ]
+}
+cleanup_retired_multi_harness_runtime() {
+  local parent root binding runner marker
+  parent="$HOME/.gjc/agent/runtimes"
+  root="$parent/multi-harness-research"
+  binding="$root/binding"
+  runner="$root/runner.mjs"
+  if ! reject_symlinked_components "$parent"; then
+    echo "! retired multi-harness runtime cleanup skipped (symlinked runtime parent): $parent" >&2
+    return 0
+  fi
+  [ -e "$root" ] || return 0
+  if ! private_directory "$root" 700 ||
+     ! private_file "$binding" 600 ||
+     ! private_file "$runner" 700 ||
+     ! IFS= read -r marker < "$binding" ||
+     [ "$marker" != "multi-harness-research-binding-v1" ]; then
+    echo "! retired multi-harness runtime cleanup skipped (not an owned private suite binding): $root" >&2
+    return 0
+  fi
+  rm -f "$binding" "$runner"
+  if rmdir "$root" 2>/dev/null; then
+    echo "✓ removed retired runtime binding: multi-harness-research"
+  else
+    echo "✓ removed retired multi-harness owned files; preserved unknown runtime children: $root"
+  fi
+}
+
+cleanup_removed_easy_markers() {
+  local file content replacement backup
+  for file in "$HOME/.gjc/agent/SYSTEM.md" "$HOME/.gjc/agent/AGENTS.md"; do
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    if [ -L "$file" ] || [ ! -f "$file" ]; then
+      echo "! easy-always marker cleanup skipped (not a regular file): $file" >&2
+      continue
+    fi
+    grep -qE '<!-- BEGIN (oh-my-gjc|my-workflows):easy-always -->' "$file" || continue
+    content="$(mktemp "$file.content.XXXXXX")" || {
+      echo "! easy-always marker cleanup skipped (temporary file failed): $file" >&2
+      continue
+    }
+    if ! awk '
+      $0 == "<!-- BEGIN oh-my-gjc:easy-always -->" {
+        seen++
+        if (skip || seen > 1) bad=1
+        skip=1
+        expected="<!-- END oh-my-gjc:easy-always -->"
+        next
+      }
+      $0 == "<!-- BEGIN my-workflows:easy-always -->" {
+        seen++
+        if (skip || seen > 1) bad=1
+        skip=1
+        expected="<!-- END my-workflows:easy-always -->"
+        next
+      }
+      $0 == "<!-- END oh-my-gjc:easy-always -->" ||
+      $0 == "<!-- END my-workflows:easy-always -->" {
+        if (!skip || $0 != expected) bad=1
+        skip=0
+        expected=""
+        next
+      }
+      !skip { print }
+      END {
+        if (!seen || skip || bad) exit 1
+      }
+    ' "$file" > "$content"; then
+      rm -f "$content"
+      echo "! easy-always marker cleanup skipped (malformed markers): $file" >&2
+      continue
+    fi
+    backup="$(mktemp "$file.bak-$(date +%s).XXXXXX")" || {
+      rm -f "$content"
+      echo "! easy-always marker backup failed: $file" >&2
+      continue
+    }
+    if ! cp -p "$file" "$backup"; then
+      rm -f "$content" "$backup"
+      echo "! easy-always marker backup failed: $file" >&2
+      continue
+    fi
+    replacement="$(mktemp "$file.tmp.XXXXXX")" || {
+      rm -f "$content"
+      echo "! easy-always marker cleanup failed; original preserved: $file" >&2
+      continue
+    }
+    if cp -p "$file" "$replacement" && cp "$content" "$replacement" && mv -f "$replacement" "$file"; then
+      rm -f "$content"
+      echo "✓ removed retired easy-always marker: $file (backup: $backup)"
+    else
+      rm -f "$content" "$replacement"
+      echo "! easy-always marker cleanup failed; original preserved: $file" >&2
+    fi
+  done
+}
+
+cleanup_retired_gate_markers() {
+  local file content replacement backup
+  for file in "$HOME/.gjc/agent/SYSTEM.md" "$HOME/.gjc/agent/AGENTS.md"; do
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    if [ -L "$file" ] || [ ! -f "$file" ]; then
+      echo "! gate-always marker cleanup skipped (not a regular file): $file" >&2
+      continue
+    fi
+    grep -qE '<!-- BEGIN (oh-my-gjc|my-workflows):gate-always -->' "$file" || continue
+    content="$(mktemp "$file.content.XXXXXX")" || {
+      echo "! gate-always marker cleanup skipped (temporary file failed): $file" >&2
+      continue
+    }
+    if ! node - "$file" "$content" <<'NODE'
+const fs = require("fs");
+const [input, output] = process.argv.slice(2);
+const source = fs.readFileSync(input, "utf8");
+const lines = source.match(/[^\n]*(?:\n|$)/g) || [];
+if (lines[lines.length - 1] === "") lines.pop();
+const markers = new Map([
+  ["<!-- BEGIN oh-my-gjc:gate-always -->", "<!-- END oh-my-gjc:gate-always -->"],
+  ["<!-- BEGIN my-workflows:gate-always -->", "<!-- END my-workflows:gate-always -->"],
+]);
+const endMarkers = new Set(markers.values());
+const seen = new Set();
+const kept = [];
+let expectedEnd = null;
+let bad = false;
+for (const raw of lines) {
+  let line = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
+  if (line.endsWith("\r")) line = line.slice(0, -1);
+  if (markers.has(line)) {
+    if (expectedEnd !== null || seen.has(line)) bad = true;
+    seen.add(line);
+    expectedEnd = markers.get(line);
+    continue;
+  }
+  if (endMarkers.has(line)) {
+    if (expectedEnd !== line) bad = true;
+    expectedEnd = null;
+    continue;
+  }
+  if (expectedEnd === null) kept.push(raw);
+}
+if (seen.size === 0 || expectedEnd !== null || bad) process.exit(1);
+fs.writeFileSync(output, kept.join(""));
+NODE
+    then
+      rm -f "$content"
+      echo "! gate-always marker cleanup skipped (malformed markers): $file" >&2
+      continue
+    fi
+    backup="$(mktemp "$file.bak-$(date +%s).XXXXXX")" || {
+      rm -f "$content"
+      echo "! gate-always marker backup failed: $file" >&2
+      continue
+    }
+    if ! cp -p "$file" "$backup"; then
+      rm -f "$content" "$backup"
+      echo "! gate-always marker backup failed: $file" >&2
+      continue
+    fi
+    replacement="$(mktemp "$file.tmp.XXXXXX")" || {
+      rm -f "$content"
+      echo "! gate-always marker cleanup failed; original preserved: $file" >&2
+      continue
+    }
+    if cp -p "$file" "$replacement" && cp "$content" "$replacement" && mv -f "$replacement" "$file"; then
+      rm -f "$content"
+      echo "✓ removed retired gate-always marker: $file (backup: $backup)"
+    else
+      rm -f "$content" "$replacement"
+      echo "! gate-always marker cleanup failed; original preserved: $file" >&2
+    fi
+  done
+}
+
+cleanup_retired_branchflow_marker() {
+  local repo file content replacement backup
+  repo="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null)" || return 0
+  file="$repo/AGENTS.md"
+  [ -e "$file" ] || [ -L "$file" ] || return 0
+  if [ -L "$file" ] || [ ! -f "$file" ]; then
+    echo "! retired branchflow marker cleanup skipped (not a regular file): $file" >&2
+    return 0
+  fi
+  grep -q '<!-- BEGIN oh-my-gjc:branchflow -->' "$file" || return 0
+  content="$(mktemp "$file.content.XXXXXX")" || {
+    echo "! retired branchflow marker cleanup skipped (temporary file failed): $file" >&2
+    return 0
+  }
+  if ! awk '
+    $0 == "<!-- BEGIN oh-my-gjc:branchflow -->" {
+      seen++
+      if (skip || seen > 1) bad=1
+      skip=1
+      next
+    }
+    $0 == "<!-- END oh-my-gjc:branchflow -->" {
+      if (!skip) bad=1
+      skip=0
+      next
+    }
+    !skip { print }
+    END {
+      if (!seen || skip || bad) exit 1
+    }
+  ' "$file" > "$content"; then
+    rm -f "$content"
+    echo "! retired branchflow marker cleanup skipped (malformed markers): $file" >&2
+    return 0
+  fi
+  backup="$(mktemp "$file.bak-$(date +%s).XXXXXX")" || {
+    rm -f "$content"
+    echo "! retired branchflow marker backup failed: $file" >&2
+    return 0
+  }
+  if ! cp -p "$file" "$backup"; then
+    rm -f "$content" "$backup"
+    echo "! retired branchflow marker backup failed: $file" >&2
+    return 0
+  fi
+  replacement="$(mktemp "$file.tmp.XXXXXX")" || {
+    rm -f "$content"
+    echo "! retired branchflow marker cleanup failed; original preserved: $file" >&2
+    return 0
+  }
+  if cp -p "$file" "$replacement" && cp "$content" "$replacement" && mv -f "$replacement" "$file"; then
+    rm -f "$content"
+    echo "✓ removed retired branchflow marker from current repository: $file (backup: $backup)"
+    echo "! docs/WORKFLOW.md is user-owned and was not removed; review it manually if branch-flow created it." >&2
+  else
+    rm -f "$content" "$replacement"
+    echo "! retired branchflow marker cleanup failed; original preserved: $file" >&2
+  fi
+}
+
+cleanup_legacy_commands() { # $1=scope — drop pre-0.8.1 leftovers (0.8.0 tombstones + old oh-my-gjc:* aliases)
+  local d n removed=0
+  d="$(commands_dir "$1")"
+  if [ -L "$d" ]; then
+    echo "❌ cleanup FAILED — native command directory is a symlink: $d" >&2
+    return 1
+  fi
+  for n in "${LEGACY_COMMANDS[@]}"; do
+    if [ -f "$d/$n.md" ] || [ -L "$d/$n.md" ]; then rm -f "$d/$n.md"; removed=$((removed+1)); fi
+  done
+  for n in "${LEGACY_OH_MY_GJC_ALIASES[@]}"; do
+    if [ -f "$d/oh-my-gjc:$n.md" ] || [ -L "$d/oh-my-gjc:$n.md" ]; then rm -f "$d/oh-my-gjc:$n.md"; removed=$((removed+1)); fi
+  done
+  if [ "$removed" -gt 0 ]; then echo "✓ cleaned $removed legacy command file(s) (pre-0.8.1 tombstones/aliases)"; fi
+}
+
+cleanup_removed() { # $1=scope — sweep only native files of capabilities removed from the suite
+  local d sd n removed=0
+  d="$(commands_dir "$1")"; sd="$(skills_dir "$1")"
+  if [ -L "$d" ] || [ -L "$sd" ]; then
+    echo "❌ cleanup FAILED — native skill/command directory is a symlink" >&2
+    return 1
+  fi
+  for n in "${REMOVED_COMMANDS[@]}"; do
+    if [ "$n" = "ouroboros-setup" ]; then
+      if [ -f "$d/omg:$n.md" ] || [ -L "$d/omg:$n.md" ]; then rm -f "$d/omg:$n.md"; removed=$((removed+1)); fi
+    elif [ -f "$d/omg:$n.md" ] || [ -L "$d/omg:$n.md" ] || [ -f "$d/oh-my-gjc:$n.md" ] || [ -L "$d/oh-my-gjc:$n.md" ]; then
+      rm -f "$d/omg:$n.md" "$d/oh-my-gjc:$n.md"
+      removed=$((removed+1))
+    fi
+  done
+  for n in "${REMOVED_SKILLS[@]}"; do
+    if [ -d "$sd/$n" ] || [ -L "$sd/$n" ]; then rm -rf "$sd/$n"; removed=$((removed+1)); fi
+  done
+  if [ "$removed" -gt 0 ]; then echo "✓ cleaned $removed removed-capability native file(s)"; fi
+}
+cleanup_retired_user_runtime_state() {
+  local sdk_parent sdk_root sdk_lock lazy_parent lazy_root lazy_binding lazy_runner receipt marker bound_home
+
+  sdk_parent="$HOME/.gjc/agent/runtimes/oh-my-gjc"
+  sdk_root="$sdk_parent/sdk-lab"
+  sdk_lock="$sdk_parent/.sdk-lab.lock"
+  if reject_symlinked_components "$sdk_parent"; then
+    if [ -L "$sdk_root" ]; then
+      rm -f "$sdk_root"
+      echo "✓ removed retired SDK runtime symlink: time-left"
+    elif [ -e "$sdk_root" ]; then
+      if private_directory "$sdk_root" 700 &&
+         private_file "$sdk_root/package.json" 600 &&
+         grep -Fq '"name": "@oh-my-gjc/sdk-lab"' "$sdk_root/package.json"; then
+        rm -rf "$sdk_root"
+        echo "✓ removed retired SDK runtime: time-left"
+      else
+        echo "! retired time-left SDK runtime cleanup skipped (not a private suite runtime): $sdk_root" >&2
+      fi
+    fi
+    if [ -L "$sdk_lock" ]; then
+      rm -f "$sdk_lock"
+      echo "✓ removed retired SDK runtime lock symlink: time-left"
+    elif [ -e "$sdk_lock" ]; then
+      if private_file "$sdk_lock" 600; then
+        rm -f "$sdk_lock"
+        echo "✓ removed retired SDK runtime lock: time-left"
+      else
+        echo "! retired time-left SDK runtime lock cleanup skipped (not a private suite lock): $sdk_lock" >&2
+      fi
+    fi
+  else
+    echo "! retired time-left SDK runtime cleanup skipped (symlinked suite runtime parent): $sdk_parent" >&2
+  fi
+
+  lazy_parent="$HOME/.gjc/agent/runtimes"
+  lazy_root="$lazy_parent/lazycodex-gjc"
+  lazy_binding="$lazy_root/binding"
+  lazy_runner="$lazy_root/runner.mjs"
+  receipt="$HOME/.gjc/agent/receipts/lazycodex-gjc-runner.sha256"
+  if reject_symlinked_components "$lazy_parent"; then
+    if [ -L "$lazy_root" ]; then
+      rm -f "$lazy_root"
+      echo "✓ removed retired runtime symlink: lazycodex-gjc"
+    elif [ -e "$lazy_root" ]; then
+      marker="" bound_home=""
+      if private_directory "$lazy_root" 700 &&
+         private_file "$lazy_binding" 600 &&
+         private_file "$lazy_runner" 700 &&
+         { IFS= read -r marker && IFS= read -r bound_home; } < "$lazy_binding" &&
+         [ "$marker" = "lazycodex-gjc-binding-v1" ] && [ "$bound_home" = "$HOME" ]; then
+        rm -rf "$lazy_root"
+        echo "✓ removed retired runtime binding: lazycodex-gjc"
+      else
+        echo "! retired lazycodex-gjc runtime cleanup skipped (not a private suite binding): $lazy_root" >&2
+      fi
+    fi
+  else
+    echo "! retired lazycodex-gjc runtime cleanup skipped (symlinked runtime parent): $lazy_parent" >&2
+  fi
+
+  if reject_symlinked_components "$(dirname "$receipt")"; then
+    if [ -L "$receipt" ]; then
+      rm -f "$receipt"
+      echo "✓ removed retired runtime receipt symlink: lazycodex-gjc"
+    elif [ -e "$receipt" ]; then
+      if private_file "$receipt" 600; then
+        rm -f "$receipt"
+        echo "✓ removed retired runtime receipt: lazycodex-gjc"
+      else
+        echo "! retired lazycodex-gjc receipt cleanup skipped (not a private suite receipt): $receipt" >&2
+      fi
+    fi
+  else
+    echo "! retired lazycodex-gjc receipt cleanup skipped (symlinked receipt parent): $(dirname "$receipt")" >&2
+  fi
+}
+
+
+MISSING=()
+
+install_skill() { # $1=name $2=scope
+  local src dir
+  if [ "$1" = "insane-review" ]; then
+    local asset
+    for asset in "${INSANE_REVIEW_ASSETS[@]}"; do
+      [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset")
+    done
+    report_missing
+  elif [ "$1" = "insane-search" ]; then
+    local asset
+    for asset in "${INSANE_SEARCH_ASSETS[@]}"; do
+      [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset")
+    done
+    report_missing
+  elif [ "$1" = "gpt-image" ]; then
+    local asset
+    for asset in "${GPT_IMAGE_ASSETS[@]}"; do
+      [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset")
+    done
+    report_missing
+  fi
+  src="$PLUGIN_ROOT/skills/$1/SKILL.md"
+  [ -f "$src" ] || { MISSING+=("skills/$1/SKILL.md"); return 0; }
+  dir="$(skills_dir "$2")/$1"; mkdir -p "$dir"; cp -f "$src" "$dir/SKILL.md"
+  echo "✓ skill   ($2): $dir/SKILL.md"
+}
+install_command() { # $1=name $2=scope
+  local src dir
+  src="$PLUGIN_ROOT/templates/$1.md"
+  [ -f "$src" ] || { MISSING+=("templates/$1.md"); return 0; }
+  dir="$(commands_dir "$2")"; mkdir -p "$dir"
+  if [ "$1" = "omg" ]; then cp -f "$src" "$dir/omg.md"; echo "✓ command ($2): $dir/omg.md  → /omg"; return 0; fi
+  cp -f "$src" "$dir/omg:$1.md"
+  echo "✓ command ($2): $dir/omg:$1.md  → /omg:$1"
+}
+uninstall_skill()     { rm -rf "$(skills_dir "$2")/$1"; echo "✓ removed skill: $1"; }
+owns_legacy_command_alias() {
+  local candidate
+  for candidate in "${LEGACY_OH_MY_GJC_ALIASES[@]}"; do [ "$candidate" = "$1" ] && return 0; done
+  return 1
+}
+uninstall_command() {
+  local d
+  d="$(commands_dir "$2")"
+  if [ "$1" = "omg" ]; then
+    rm -f "$d/omg.md"
+  else
+    rm -f "$d/omg:$1.md"
+    if owns_legacy_command_alias "$1"; then rm -f "$d/oh-my-gjc:$1.md"; fi
+  fi
+  echo "✓ removed command: $1"
+}
+
+report_missing() {
+  if [ "${#MISSING[@]}" -gt 0 ]; then
+    echo "❌ install FAILED — expected files missing (nothing partial is accepted):" >&2
+    for m in "${MISSING[@]}"; do echo "   - $m" >&2; done
+    exit 1
+  fi
+}
+
+preflight_all() {  # verify ALL expected files exist BEFORE copying anything (never a partial install)
+  MISSING=()
+  local asset
+  for s in "${EXPECTED_SKILLS[@]}";     do [ -f "$PLUGIN_ROOT/skills/$s/SKILL.md" ]  || MISSING+=("skills/$s/SKILL.md"); done
+  for c in "${EXPECTED_COMMANDS[@]}";   do [ -f "$PLUGIN_ROOT/templates/$c.md" ]      || MISSING+=("templates/$c.md"); done
+  for asset in "${INSANE_SEARCH_ASSETS[@]}"; do [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset"); done
+  for asset in "${GPT_IMAGE_ASSETS[@]}"; do [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset"); done
+  for asset in "${INSANE_REVIEW_ASSETS[@]}"; do [ -f "$PLUGIN_ROOT/$asset" ] || MISSING+=("$asset"); done
+  report_missing
+}
+
+usage() {
+  echo "usage: install-skill.sh [all|<name>] [user|project|uninstall [user|project]]" >&2
+  exit 2
+}
+
+# First arg may be "all", a skill/command name, or a mode.
+target="all"
+if [ $# -ge 1 ]; then
+  if [ "$1" = "all" ]; then
+    target="all"; shift
+  elif [ -d "$PLUGIN_ROOT/skills/$1" ] || [ -f "$PLUGIN_ROOT/templates/$1.md" ]; then
+    target="$1"; shift
+  fi
+fi
+
+mode="${1:-user}"
+
+case "$mode" in
+  uninstall)
+    scope="${2:-user}"
+    [ "$#" -le 2 ] || usage
+    case "$scope" in user|project) ;; *) usage ;; esac
+    prepare_native_surface_paths "$scope" verify
+    if [ "$target" = "all" ]; then
+      for s in "${EXPECTED_SKILLS[@]}";     do uninstall_skill     "$s" "$scope"; done
+      for c in "${EXPECTED_COMMANDS[@]}";   do uninstall_command   "$c" "$scope"; done
+      cleanup_legacy_commands "$scope"
+      cleanup_removed "$scope"
+      if [ "$scope" = "user" ]; then cleanup_retired_user_runtime_state; cleanup_retired_multi_harness_runtime; fi
+      if [ "$scope" = "user" ] && [ -f "$PLUGIN_ROOT/bin/omg-autoupdate.sh" ]; then
+        bash "$PLUGIN_ROOT/bin/omg-autoupdate.sh" disable >/dev/null 2>&1 || true
+      fi
+      uninstall_suite_root_binding "$scope"
+      if [ "$scope" = "user" ]; then cleanup_removed_easy_markers; cleanup_retired_gate_markers; fi
+      cleanup_retired_branchflow_marker
+    else
+      if [ -d "$PLUGIN_ROOT/skills/$target" ];       then uninstall_skill   "$target" "$scope"; fi
+      if [ -f "$PLUGIN_ROOT/templates/$target.md" ]; then uninstall_command "$target" "$scope"; fi
+    fi
+    ;;
+  user|project)
+    [ "$#" -le 1 ] || usage
+    prepare_native_surface_paths "$mode" create
+    if [ "$target" = "all" ]; then
+      preflight_all
+      install_suite_root_binding "$mode"
+      for s in "${EXPECTED_SKILLS[@]}";     do install_skill     "$s" "$mode"; done
+      for c in "${EXPECTED_COMMANDS[@]}";   do install_command   "$c" "$mode"; done
+      cleanup_legacy_commands "$mode"
+      cleanup_removed "$mode"
+      if [ "$mode" = "user" ]; then
+        cleanup_retired_user_runtime_state
+        cleanup_retired_multi_harness_runtime
+        cleanup_removed_easy_markers
+        cleanup_retired_gate_markers
+      fi
+      cleanup_retired_branchflow_marker
+      report_missing
+    else
+      install_suite_root_binding "$mode"
+      if [ -d "$PLUGIN_ROOT/skills/$target" ];       then install_skill   "$target" "$mode"; fi
+      if [ -f "$PLUGIN_ROOT/templates/$target.md" ]; then install_command "$target" "$mode"; fi
+      report_missing
+    fi
+    if [ "$mode" = "user" ]; then
+      echo "  → /omg:no-english remains an explicit command; other skills keep their documented triggers."
+      echo "  → open a NEW gjc session (or run /move .) to load newly installed commands. Re-run after upgrades."
+    else
+      echo "  → installed for this repo. A new gjc session in this dir will pick them up."
+    fi
+    ;;
+  *)
+    usage ;;
+esac

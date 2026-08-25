@@ -1,0 +1,575 @@
+/**
+ * gajae-app ownership-transfer regression.
+ * Run: bun test plugins/oh-my-gajae-code/test/gajae-app-removal.test.ts
+ */
+import { describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, dirname, join } from "path";
+import { spawnSync } from "child_process";
+
+const pluginRoot = join(import.meta.dir, "..");
+const installSh = join(pluginRoot, "bin/install-skill.sh");
+const installer = readFileSync(installSh, "utf8");
+const canonicalTmpDir = realpathSync(tmpdir());
+
+function parseManifest(name: string): string[] {
+  const match = installer.match(new RegExp(`^${name}=\\(([^)]*)\\)`, "m"));
+  expect(match, `missing ${name}`).not.toBeNull();
+  return match![1]
+    .replace(/\\\s*\n/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function writeSentinel(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+}
+
+function intersection(left: string[], right: string[]): string[] {
+  return left.filter((value) => right.includes(value));
+}
+
+const retiredSkills = [
+  "gate-briefing",
+  "korean-first",
+  "workflow-eta",
+  "gajae-app",
+  "multivendor-presets",
+  "preset-pack",
+  "release-gate",
+  "easy-answer",
+  "plain-layer",
+  "branch-flow",
+  "worktree",
+  "gjc-bugwatch",
+  "session-observer",
+  "time-left",
+  "lazycodex-gjc",
+  "adaptive-response",
+  "deep-onboarding",
+  "multi-harness-research",
+  "ouroboros",
+];
+
+const retiredCommands = [
+  "gajae-app",
+  "presets",
+  "preset-pack",
+  "release",
+  "easy",
+  "easy-always",
+  "plain",
+  "branchflow-always",
+  "worktree",
+  "bugwatch-scan",
+  "session-observer",
+  "time-left",
+  "lazycodex-gjc",
+  "fable",
+  "gate",
+  "gate-always",
+  "deep-onboarding",
+  "multi-harness",
+  "ouroboros-setup",
+];
+
+describe("removed capability manifests", () => {
+  test("transitions ownership atomically across the four manifests", () => {
+    const expectedSkills = parseManifest("EXPECTED_SKILLS");
+    const expectedCommands = parseManifest("EXPECTED_COMMANDS");
+    const expectedRuntimes = parseManifest("EXPECTED_RUNTIMES");
+    const removedSkills = parseManifest("REMOVED_SKILLS");
+    const removedCommands = parseManifest("REMOVED_COMMANDS");
+    expect(expectedSkills).toHaveLength(5);
+    expect(expectedCommands).toHaveLength(5);
+    expect(expectedSkills).not.toContain("gajae-app");
+    expect(expectedCommands).not.toContain("gajae-app");
+
+    expect(expectedSkills).toEqual([
+      "no-english",
+      "extragoal",
+      "insane-review",
+      "insane-search",
+      "gpt-image",
+    ]);
+    expect(expectedCommands).toEqual([
+      "omg",
+      "setup",
+      "no-english",
+      "insane-review",
+      "gpt-image",
+    ]);
+    expect(expectedRuntimes).toEqual([]);
+    for (const skill of retiredSkills) expect(removedSkills).toContain(skill);
+    for (const command of retiredCommands) expect(removedCommands).toContain(command);
+    expect(intersection(expectedSkills, removedSkills)).toEqual([]);
+    expect(intersection(expectedCommands, removedCommands)).toEqual([]);
+    expect(existsSync(join(pluginRoot, "skills/gajae-app/SKILL.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "templates/gajae-app.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "skills/multivendor-presets/SKILL.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "templates/presets.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "references/presets.yml"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "skills/preset-pack/SKILL.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "templates/preset-pack.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "references/preset-pack.yml"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "skills/release-gate/SKILL.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "templates/release.md"))).toBe(false);
+    for (const skill of retiredSkills) {
+      expect(existsSync(join(pluginRoot, `skills/${skill}/SKILL.md`))).toBe(false);
+    }
+    for (const command of retiredCommands) {
+      expect(existsSync(join(pluginRoot, `templates/${command}.md`))).toBe(false);
+    }
+    expect(existsSync(join(pluginRoot, "bin/lazycodex-gjc.mjs"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "skills/lazycodex-gjc/SKILL.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "templates/lazycodex-gjc.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "skills/time-left/SKILL.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "templates/time-left.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "tools/sdk-lab"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "bin/multi-harness-research.mjs"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "bin/session-observer.ts"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "skills/session-observer/SKILL.md"))).toBe(false);
+    expect(existsSync(join(pluginRoot, "templates/session-observer.md"))).toBe(false);
+    expect(readFileSync(join(pluginRoot, "skills/extragoal/SKILL.md"), "utf8")).not.toContain("--mpreset reviewer");
+  });
+});
+
+describe("removed capability upgrade cleanup", () => {
+  test.each(["user", "project"] as const)("sweeps only native %s entries", (scope) => {
+    const sandbox = mkdtempSync(join(canonicalTmpDir, `omg-gajae-app-${scope}-`));
+    const home = join(sandbox, "home");
+    const project = join(sandbox, "project");
+    mkdirSync(home, { recursive: true });
+    mkdirSync(project, { recursive: true });
+
+    const nativeRoot =
+      scope === "user" ? join(home, ".gjc/agent") : join(project, ".gjc");
+    const removedSkillPaths = retiredSkills.map((name) =>
+      join(nativeRoot, `skills/${name}/SKILL.md`),
+    );
+    const removedCommandPaths = retiredCommands.map((name) =>
+      join(nativeRoot, `commands/omg:${name}.md`),
+    );
+    const legacyCommandAlias = join(nativeRoot, "commands/oh-my-gjc:gajae-app.md");
+    const nativeSibling = join(nativeRoot, "skills/gajae-app-sentinel/SKILL.md");
+    const commandSibling = join(nativeRoot, "commands/omg:gajae-app-sentinel.md");
+    const removedRuntime = join(home, ".gjc/agent/runtimes/lazycodex-gjc/binding");
+    const removedRunner = join(home, ".gjc/agent/runtimes/lazycodex-gjc/runner.mjs");
+    const removedReceipt = join(home, ".gjc/agent/receipts/lazycodex-gjc-runner.sha256");
+    const removedSdkRuntime = join(home, ".gjc/agent/runtimes/oh-my-gjc/sdk-lab/package.json");
+    const removedSdkLock = join(home, ".gjc/agent/runtimes/oh-my-gjc/.sdk-lab.lock");
+    const removedMultiHarnessBinding = join(home, ".gjc/agent/runtimes/multi-harness-research/binding");
+    const removedMultiHarnessRunner = join(home, ".gjc/agent/runtimes/multi-harness-research/runner.mjs");
+    const preservedMultiHarnessChild = join(home, ".gjc/agent/runtimes/multi-harness-research/user-note");
+    const codexCredential = join(home, ".codex/auth.json");
+    const systemFile = join(home, ".gjc/agent/SYSTEM.md");
+    const agentsFile = join(home, ".gjc/agent/AGENTS.md");
+    // Historical cleanup fixture: remove both retired owned marker blocks.
+    const markerFixture = [
+      "user content before",
+      "<!-- BEGIN oh-my-gjc:easy-always -->",
+      "retired easy rule",
+      "<!-- END oh-my-gjc:easy-always -->",
+      "<!-- BEGIN oh-my-gjc:gate-always -->",
+      "preserved gate rule",
+      "<!-- END oh-my-gjc:gate-always -->",
+      "user content after",
+      "",
+    ].join("\n");
+    const sentinels = new Map<string, string>([
+      [join(sandbox, "claudecodeui-checkout/.git/HEAD"), "checkout remains"],
+      [join(sandbox, "systemd/user/cloudcli.service"), "service remains"],
+      [join(sandbox, "app-data/state.sqlite"), "data remains"],
+      [join(sandbox, "environment/gajae-app.env"), "environment remains"],
+      [join(sandbox, "logs/gajae-app.log"), "logs remain"],
+      [join(sandbox, "tailscale/state.json"), "Tailscale state remains"],
+      [join(home, ".gjc/agent/models.yml"), "profiles:\n  sol:\n    display_name: user-owned\n"],
+      [join(home, ".local/share/oh-my-gajae-code/multi-harness/research.json"), "XDG research remains"],
+      [join(home, ".local/share/gjc/auth.json"), "GJC auth remains"],
+      [join(home, ".claude/.credentials.json"), "Claude auth remains"],
+    ]);
+
+    try {
+      for (const path of removedSkillPaths) writeSentinel(path, "removed skill");
+      for (const path of removedCommandPaths) writeSentinel(path, "removed command");
+      writeSentinel(legacyCommandAlias, "legacy command alias to remove");
+      rmSync(removedSkillPaths[0]);
+      symlinkSync(join(sandbox, "missing-retired-skill"), removedSkillPaths[0]);
+      rmSync(removedCommandPaths[0]);
+      symlinkSync(join(sandbox, "missing-retired-command"), removedCommandPaths[0]);
+      expect(lstatSync(removedSkillPaths[0]).isSymbolicLink()).toBe(true);
+      expect(lstatSync(removedCommandPaths[0]).isSymbolicLink()).toBe(true);
+
+      writeSentinel(removedRuntime, `lazycodex-gjc-binding-v1\n${home}\n`);
+      writeSentinel(removedRunner, "retired runner");
+      chmodSync(dirname(removedRuntime), 0o700);
+      chmodSync(removedRuntime, 0o600);
+      chmodSync(removedRunner, 0o700);
+      if (scope === "user") {
+        mkdirSync(dirname(removedReceipt), { recursive: true });
+        symlinkSync(join(sandbox, "missing-retired-receipt"), removedReceipt);
+      } else {
+        writeSentinel(removedReceipt, "retired receipt");
+      }
+      writeSentinel(removedSdkRuntime, '{"name": "@oh-my-gjc/sdk-lab"}\n');
+      writeSentinel(removedSdkLock, "retired SDK lock");
+      chmodSync(dirname(removedSdkRuntime), 0o700);
+      chmodSync(removedSdkRuntime, 0o600);
+      chmodSync(removedSdkLock, 0o600);
+      writeSentinel(removedMultiHarnessBinding, "multi-harness-research-binding-v1\n");
+      writeSentinel(removedMultiHarnessRunner, "retired runner");
+      writeSentinel(preservedMultiHarnessChild, "unknown runtime child remains");
+      chmodSync(dirname(removedMultiHarnessBinding), 0o700);
+      chmodSync(removedMultiHarnessBinding, 0o600);
+      chmodSync(removedMultiHarnessRunner, 0o700);
+      writeSentinel(codexCredential, "user Codex credential remains");
+      writeSentinel(systemFile, markerFixture);
+      writeSentinel(agentsFile, markerFixture.replaceAll("oh-my-gjc:easy-always", "my-workflows:easy-always"));
+      chmodSync(systemFile, 0o600);
+      chmodSync(agentsFile, 0o600);
+      writeSentinel(nativeSibling, "native sibling remains");
+      writeSentinel(commandSibling, "command sibling remains");
+      for (const [path, content] of sentinels) writeSentinel(path, content);
+
+      const result = spawnSync("bash", [installSh, "all", scope], {
+        cwd: scope === "project" ? project : sandbox,
+        env: { ...process.env, HOME: home, CODEX_HOME: join(sandbox, "absent-codex-home") },
+        encoding: "utf8",
+      });
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("removed-capability native file");
+      for (const path of removedSkillPaths) expect(existsSync(path)).toBe(false);
+      for (const path of removedCommandPaths) expect(existsSync(path)).toBe(false);
+      expect(existsSync(legacyCommandAlias)).toBe(false);
+      expect(() => lstatSync(removedSkillPaths[0])).toThrow();
+      expect(() => lstatSync(removedCommandPaths[0])).toThrow();
+      if (scope === "user") {
+        expect(existsSync(removedRuntime)).toBe(false);
+        expect(() => lstatSync(removedReceipt)).toThrow();
+        expect(existsSync(removedSdkRuntime)).toBe(false);
+        expect(existsSync(removedSdkLock)).toBe(false);
+        expect(existsSync(removedMultiHarnessBinding)).toBe(false);
+        expect(existsSync(removedMultiHarnessRunner)).toBe(false);
+        expect(readFileSync(preservedMultiHarnessChild, "utf8")).toBe("unknown runtime child remains");
+        expect(readFileSync(codexCredential, "utf8")).toBe("user Codex credential remains");
+        for (const file of [systemFile, agentsFile]) {
+          const original =
+            file === systemFile
+              ? markerFixture
+              : markerFixture.replaceAll("oh-my-gjc:easy-always", "my-workflows:easy-always");
+          const content = readFileSync(file, "utf8");
+          expect(content).toContain("user content before");
+          expect(content).toContain("user content after");
+          expect(content).not.toContain("preserved gate rule");
+          expect(content).not.toContain("gate-always");
+          expect(content).not.toContain("easy-always");
+          expect(statSync(file).mode & 0o777).toBe(0o600);
+          const backupNames = readdirSync(dirname(file)).filter((name) =>
+            name.startsWith(`${basename(file)}.bak-`),
+          );
+          expect(backupNames.length).toBeGreaterThanOrEqual(2);
+          expect(
+            backupNames.some((name) => readFileSync(join(dirname(file), name), "utf8") === original),
+          ).toBe(true);
+          for (const backupName of backupNames) {
+            expect(statSync(join(dirname(file), backupName)).mode & 0o777).toBe(0o600);
+          }
+        }
+      } else {
+        expect(readFileSync(removedRuntime, "utf8")).toBe(`lazycodex-gjc-binding-v1\n${home}\n`);
+        expect(readFileSync(removedRunner, "utf8")).toBe("retired runner");
+        expect(readFileSync(removedReceipt, "utf8")).toBe("retired receipt");
+        expect(readFileSync(removedSdkRuntime, "utf8")).toBe('{"name": "@oh-my-gjc/sdk-lab"}\n');
+        expect(readFileSync(removedSdkLock, "utf8")).toBe("retired SDK lock");
+        expect(readFileSync(removedMultiHarnessBinding, "utf8")).toBe("multi-harness-research-binding-v1\n");
+        expect(readFileSync(removedMultiHarnessRunner, "utf8")).toBe("retired runner");
+        expect(readFileSync(preservedMultiHarnessChild, "utf8")).toBe("unknown runtime child remains");
+        expect(readFileSync(codexCredential, "utf8")).toBe("user Codex credential remains");
+        expect(readFileSync(systemFile, "utf8")).toBe(markerFixture);
+        expect(readFileSync(agentsFile, "utf8")).toBe(
+          markerFixture.replaceAll("oh-my-gjc:easy-always", "my-workflows:easy-always"),
+        );
+      }
+      expect(readFileSync(nativeSibling, "utf8")).toBe("native sibling remains");
+      expect(readFileSync(commandSibling, "utf8")).toBe("command sibling remains");
+      for (const [path, content] of sentinels) {
+        expect(readFileSync(path, "utf8")).toBe(content);
+      }
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+  test("rejects symlinked native surface roots before mutation", () => {
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-native-symlink-"));
+    const home = join(sandbox, "home");
+    const externalSkills = join(sandbox, "external-skills");
+    const skillsRoot = join(home, ".gjc/agent/skills");
+    const sentinel = join(externalSkills, "time-left/SKILL.md");
+    try {
+      writeSentinel(sentinel, "external user file remains");
+      mkdirSync(dirname(skillsRoot), { recursive: true });
+      symlinkSync(externalSkills, skillsRoot);
+      const result = spawnSync("bash", [installSh, "all", "user"], {
+        cwd: sandbox,
+        env: { ...process.env, HOME: home },
+        encoding: "utf8",
+      });
+      expect(result.status).not.toBe(0);
+      expect(readFileSync(sentinel, "utf8")).toBe("external user file remains");
+      expect(existsSync(join(externalSkills, "no-english/SKILL.md"))).toBe(false);
+      expect(existsSync(join(home, ".gjc/agent/runtimes/oh-my-gajae-code/root"))).toBe(false);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+  test("validates every native root before creating any missing sibling", () => {
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-command-symlink-"));
+    const home = join(sandbox, "home");
+    const externalCommands = join(sandbox, "external-commands");
+    const commandsRoot = join(home, ".gjc/agent/commands");
+    const sentinel = join(externalCommands, "omg:time-left.md");
+    try {
+      writeSentinel(sentinel, "external user command remains");
+      mkdirSync(dirname(commandsRoot), { recursive: true });
+      symlinkSync(externalCommands, commandsRoot);
+      const result = spawnSync("bash", [installSh, "all", "user"], {
+        cwd: sandbox,
+        env: { ...process.env, HOME: home },
+        encoding: "utf8",
+      });
+      expect(result.status).not.toBe(0);
+      expect(readFileSync(sentinel, "utf8")).toBe("external user command remains");
+      expect(existsSync(join(home, ".gjc/agent/skills"))).toBe(false);
+      expect(existsSync(join(home, ".gjc/agent/runtimes/oh-my-gajae-code/root"))).toBe(false);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+  test("rejects an invalid uninstall scope before mutation", () => {
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-invalid-scope-"));
+    const home = join(sandbox, "home");
+    const skill = join(home, ".gjc/agent/skills/adaptive-response/SKILL.md");
+    try {
+      writeSentinel(skill, "must remain");
+      const result = spawnSync("bash", [installSh, "all", "uninstall", "projects"], {
+        cwd: sandbox,
+        env: { ...process.env, HOME: home },
+        encoding: "utf8",
+      });
+      expect(result.status).toBe(2);
+      expect(readFileSync(skill, "utf8")).toBe("must remain");
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a symlinked user policy file", () => {
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-policy-symlink-"));
+    const home = join(sandbox, "home");
+    const external = join(sandbox, "external-system.md");
+    const systemFile = join(home, ".gjc/agent/SYSTEM.md");
+    // Historical cleanup marker must remain untouched when its policy file is symlinked.
+    const content = [
+      "external content",
+      "<!-- BEGIN oh-my-gjc:easy-always -->",
+      "retired easy rule",
+      "<!-- END oh-my-gjc:easy-always -->",
+      "",
+    ].join("\n");
+    try {
+      writeSentinel(external, content);
+      mkdirSync(dirname(systemFile), { recursive: true });
+      symlinkSync(external, systemFile);
+      const result = spawnSync("bash", [installSh, "all", "user"], {
+        cwd: sandbox,
+        env: { ...process.env, HOME: home },
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain("not a regular file");
+      expect(lstatSync(systemFile).isSymbolicLink()).toBe(true);
+      expect(readFileSync(external, "utf8")).toBe(content);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test.each([
+    ["content temp creation", "mktemp", 1],
+    ["backup temp creation", "mktemp", 2],
+    ["replacement temp creation", "mktemp", 3],
+    ["backup copy", "cp", 1],
+    ["replacement metadata copy", "cp", 2],
+    ["replacement content copy", "cp", 3],
+    ["atomic rename", "mv", 1],
+  ] as const)("preserves policy when %s fails", (_label, command, failAt) => {
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-policy-io-failure-"));
+    const home = join(sandbox, "home");
+    const fakeBin = join(sandbox, "bin");
+    const state = join(sandbox, `${command}-count`);
+    const systemFile = join(home, ".gjc/agent/SYSTEM.md");
+    // Historical cleanup marker must remain untouched when atomic cleanup fails.
+    const content = [
+      "user content",
+      "<!-- BEGIN oh-my-gjc:easy-always -->",
+      "retired easy rule",
+      "<!-- END oh-my-gjc:easy-always -->",
+      "",
+    ].join("\n");
+    try {
+      writeSentinel(systemFile, content);
+      chmodSync(systemFile, 0o600);
+      mkdirSync(fakeBin, { recursive: true });
+      writeSentinel(
+        join(fakeBin, command),
+        [
+          "#!/bin/sh",
+          "n=0",
+          `if [ -f '${state}' ]; then IFS= read -r n < '${state}'; fi`,
+          "n=$((n + 1))",
+          `printf '%s\\n' "$n" > '${state}'`,
+          `if [ "$n" -eq ${failAt} ]; then exit 1; fi`,
+          `exec /usr/bin/${command} "$@"`,
+          "",
+        ].join("\n"),
+      );
+      chmodSync(join(fakeBin, command), 0o755);
+      const result = spawnSync("bash", [installSh, "all", "uninstall", "user"], {
+        cwd: sandbox,
+        env: { ...process.env, HOME: home, PATH: `${fakeBin}:${process.env.PATH}` },
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain("failed");
+      expect(readFileSync(systemFile, "utf8")).toBe(content);
+      expect(statSync(systemFile).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+  test("fails marker cleanup closed on malformed ordering", () => {
+    const sandbox = mkdtempSync(join(canonicalTmpDir, "omg-malformed-marker-"));
+    const home = join(sandbox, "home");
+    const systemFile = join(home, ".gjc/agent/SYSTEM.md");
+    const malformed = [
+      "user content before",
+      "<!-- END oh-my-gjc:easy-always -->",
+      "<!-- BEGIN oh-my-gjc:easy-always -->",
+      "retired easy rule",
+      "<!-- END oh-my-gjc:easy-always -->",
+      "user content after",
+      "",
+    ].join("\n");
+    try {
+      writeSentinel(systemFile, malformed);
+      chmodSync(systemFile, 0o600);
+      const result = spawnSync("bash", [installSh, "all", "user"], {
+        cwd: sandbox,
+        env: { ...process.env, HOME: home },
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain("malformed markers");
+      expect(readFileSync(systemFile, "utf8")).toBe(malformed);
+      expect(statSync(systemFile).mode & 0o777).toBe(0o600);
+      expect(
+        readdirSync(dirname(systemFile)).filter((name) =>
+          name.startsWith(`${basename(systemFile)}.`),
+        ),
+      ).toEqual([]);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("retired branchflow marker cleanup", () => {
+  function fixture(name: string) {
+    const sandbox = mkdtempSync(join(canonicalTmpDir, `omg-${name}-`));
+    const home = join(sandbox, "home");
+    const project = join(sandbox, "project");
+    mkdirSync(home);
+    mkdirSync(project);
+    expect(spawnSync("git", ["init", "-q"], { cwd: project }).status).toBe(0);
+    return { sandbox, home, project, agents: join(project, "AGENTS.md") };
+  }
+
+  function install(home: string, project: string) {
+    return spawnSync("bash", [installSh, "all", "user"], {
+      cwd: project,
+      env: { ...process.env, HOME: home, CODEX_HOME: join(home, "absent-codex-home") },
+      encoding: "utf8",
+    });
+  }
+
+  test("removes one well-formed marker and preserves outside bytes with backup", () => {
+    const f = fixture("branchflow-marker");
+    const original = [
+      "before",
+      "<!-- BEGIN oh-my-gjc:branchflow -->",
+      "retired policy",
+      "<!-- END oh-my-gjc:branchflow -->",
+      "after",
+      "",
+    ].join("\n");
+    try {
+      writeSentinel(f.agents, original);
+      chmodSync(f.agents, 0o640);
+
+      const result = install(f.home, f.project);
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("removed retired branchflow marker");
+      expect(readFileSync(f.agents, "utf8")).toBe("before\nafter\n");
+      expect(statSync(f.agents).mode & 0o777).toBe(0o640);
+      const backup = readdirSync(f.project).find((name) => name.startsWith("AGENTS.md.bak-"));
+      expect(backup).toBeDefined();
+      expect(readFileSync(join(f.project, backup!), "utf8")).toBe(original);
+      expect(statSync(join(f.project, backup!)).mode & 0o777).toBe(0o640);
+    } finally {
+      rmSync(f.sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves malformed markers without creating a backup", () => {
+    const f = fixture("branchflow-malformed");
+    const malformed = [
+      "before",
+      "<!-- BEGIN oh-my-gjc:branchflow -->",
+      "retired policy",
+      "after",
+      "",
+    ].join("\n");
+    try {
+      writeSentinel(f.agents, malformed);
+
+      const result = install(f.home, f.project);
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain("branchflow marker cleanup skipped (malformed markers)");
+      expect(readFileSync(f.agents, "utf8")).toBe(malformed);
+      expect(readdirSync(f.project).filter((name) => name.startsWith("AGENTS.md."))).toEqual([]);
+    } finally {
+      rmSync(f.sandbox, { recursive: true, force: true });
+    }
+  });
+
+  test("leaves an unmarked repository untouched", () => {
+    const f = fixture("branchflow-absent");
+    try {
+      writeSentinel(f.agents, "repository policy\n");
+
+      const result = install(f.home, f.project);
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(f.agents, "utf8")).toBe("repository policy\n");
+      expect(readdirSync(f.project).filter((name) => name.startsWith("AGENTS.md."))).toEqual([]);
+    } finally {
+      rmSync(f.sandbox, { recursive: true, force: true });
+    }
+  });
+});

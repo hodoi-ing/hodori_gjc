@@ -1,0 +1,20 @@
+# gjc-bugwatch live HIGH-signal daemon — user systemd unit.
+# install.sh renders @GJC_BUGWATCH_DAEMON@ to the verified absolute daemon path.
+# Operate: systemctl --user {status|restart|stop} gjc-bugwatch
+# (ops/gjc-bugwatch/install.sh installs and activates this unit idempotently.)
+[Unit]
+Description=gjc-bugwatch live daemon (follow.ts HIGH signal -> tmux $GJC_BUGWATCH_SESSION triage inject)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash "@GJC_BUGWATCH_DAEMON@"
+Restart=on-failure
+RestartSec=5
+Environment=GJC_BUGWATCH_SESSION=gjc-pr
+Environment=GJC_BUGWATCH_MIN=medium
+# 관제탑 게이트: horcrux 세션이 열려 있을 때만 주입 (빈 값 = 게이트 없음)
+Environment=GJC_BUGWATCH_GATE_SESSION=horcrux
+
+[Install]
+WantedBy=default.target

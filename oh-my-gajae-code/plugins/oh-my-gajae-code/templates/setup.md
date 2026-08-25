@@ -1,0 +1,45 @@
+---
+description: oh-my-gajae-code 읽기 전용 진단 — 설치 표면·binding 존재와 전제조건만 확인하며 설치·로그인·연구는 하지 않는다.
+argument-hint: "(인자 없음)"
+---
+
+# /omg:setup
+
+`/omg:setup`은 **읽기 전용 사용 가능 여부 진단만** 한다. 설치·업그레이드·복구·로그인·마이그레이션·연구 실행은 하지 않으며, provider CLI나 runtime을 실행하지 않는다.
+
+## Step 0 — 네이티브 표면과 binding 확인
+
+canonical 진단 대상은 user scope `~/.gjc/agent`다. 아래 5개 skill과 5개 command, 새 canonical suite root binding의 **존재만** 확인한다. binding 존재는 실제 로그인·selector·credential 검증 성공을 뜻하지 않는다.
+
+```bash
+root="$HOME/.gjc/agent"
+new_suite_binding="$root/runtimes/oh-my-gajae-code/root"
+legacy_suite_binding="$root/runtimes/oh-my-gjc/root"
+if test -e "$legacy_suite_binding" || test -L "$legacy_suite_binding"; then
+  printf '%s\n' "warning: preserved compatibility fallback binding is present at $legacy_suite_binding; the oh-my-gajae-code binding is canonical" >&2
+fi
+test -f "$new_suite_binding" && test ! -L "$new_suite_binding" || exit 1
+for skill in no-english extragoal insane-review insane-search gpt-image; do
+  test -f "$root/skills/$skill/SKILL.md" || exit 1
+done
+for command in omg.md omg:setup.md omg:no-english.md omg:insane-review.md omg:gpt-image.md; do
+  test -f "$root/commands/$command" || exit 1
+done
+```
+
+프로젝트 `.gjc/runtimes/oh-my-gajae-code/root`, `.gjc/commands/omg*.md`, 또는 suite-owned `.gjc/skills/<name>`가 있으면 `프로젝트 scope 잔재가 user 설치보다 우선할 수 있음`이라고 경고만 한다. **Preserved compatibility fallback:** 이전 `~/.gjc/agent/runtimes/oh-my-gjc/root` binding이 있으면 새 binding을 정본으로 유지한 채 read-only fallback 존재만 경고한다. 이 커맨드는 프로젝트·user scope 어느 쪽도 수정하지 않는다.
+
+누락·손상은 체크리스트에 `→ hardened installer를 사용자가 별도 셸에서 실행해야 함`으로 보고한다. 이 커맨드 안에서 installer를 실행하거나 provider 인증을 고치지 않는다.
+
+## Step 1 — 전제조건 기능 사용 가능 여부
+
+존재와 binding만 확인해 지금 바로 시도 가능한 표면을 안내한다. 없는 것은 설치·로그인·수정하지 않고 fail-closed 상태로 보고한다.
+
+| 감지 | 읽기 전용 확인 | 기능 |
+|---|---|---|
+| Chrome + ChatGPT | Chrome 프로필 존재 | `/omg:insane-review` |
+| ChatGPT Images | ChatGPT 로그인 가능 Chromium 프로필 존재 | `/omg:gpt-image` |
+
+## Step 2 — 출력 형식
+
+각 결과를 체크리스트 한 줄로만 정리한다: `✓ 확인됨` / `– 현재 사용할 수 없음` / `→ 사용자가 별도 조치 필요`. 설치·로그인·migration·research·파일 변경을 제안한 뒤 실행하지 않는다.
