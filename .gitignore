@@ -1,0 +1,29 @@
+# === 보안 필수 제외 항목 ===
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.token
+config.yml
+mcp.json
+mcp.json.bak*
+
+# === Gajae Code / AI 하네스 임시 및 캐시 파일 ===
+.gjc/
+.gjc-free/
+.gjc_cache/
+gjc-crash*
+gjc-error*
+*.db
+*.sqlite
+*.sqlite3
+
+# === 파이썬 & 시스템 임시 파일 ===
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+.DS_Store
