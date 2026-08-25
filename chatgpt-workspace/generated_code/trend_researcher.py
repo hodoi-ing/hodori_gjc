@@ -1,7 +1,7 @@
 """Small MVP for grouping manually collected AI-trend signals.
 
-Input: JSON list of records with source, title, text, and optional url/topic.
-Output: Markdown summary with counts by source and topic.
+Input: JSON list of records with source, author, title, text, and optional url/topic.
+Output: Markdown summary with counts by source and topic, preserving authors.
 """
 
 from __future__ import annotations
@@ -59,9 +59,12 @@ def build_report(records: list[dict]) -> str:
     for index, record in enumerate(records, start=1):
         title = record.get("title") or "제목 없음"
         source = record.get("source", "unknown")
+        author = record.get("author") or "작성자 미상"
         url = record.get("url")
         suffix = f" — {url}" if url else ""
-        lines.append(f"{index}. **{title}** ({source}){suffix}")
+        lines.append(
+            f"{index}. **{title}** — 작성자: **{author}** ({source}){suffix}"
+        )
 
     return "\n".join(lines) + "\n"
 
