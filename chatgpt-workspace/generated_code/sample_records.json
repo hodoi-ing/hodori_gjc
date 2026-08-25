@@ -1,0 +1,20 @@
+[
+  {
+    "source": "X",
+    "title": "AI coding agent example",
+    "text": "People are discussing Codex and coding agents.",
+    "url": "https://x.com/"
+  },
+  {
+    "source": "Reddit",
+    "title": "MCP workflow",
+    "text": "A user shares an MCP setup for an AI agent.",
+    "url": "https://www.reddit.com/"
+  },
+  {
+    "source": "GitHub",
+    "title": "Local AI project",
+    "text": "A repository experiments with Ollama and a local LLM.",
+    "url": "https://github.com/"
+  }
+]
