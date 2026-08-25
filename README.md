@@ -18,6 +18,12 @@
 
 ---
 
+## 🛡️ 보안 규칙
+1. API Key, SSH Key, 개인 토큰(`.env`, `mcp.json` 등)은 절대로 Git에 커밋하지 않습니다. (Pre-Commit Hook으로 100% 자동 검사)
+2. 모든 작업은 Private 상태를 유지합니다.
+
+---
+
 ## 🏭 GPT 호도리 제작소
 
 ChatGPT와 호도리가 함께 아이디어를 만들고, 작은 실험으로 검증하면서 실제 프로젝트로 발전시키는 작업 공간입니다.
@@ -90,9 +96,3 @@ CARD
 도리보고는 검색할 때마다 원문과 이미지 자료를 GitHub에 쌓지 않습니다. 현재는 **ChatGPT 웹 검색 → 여러 출처 조사 → 이슈 분류 → 반응 확인 → 카드뉴스형 텍스트 작성** 방식으로 MVP를 검증하고 있습니다.
 
 상세 설계와 운영 기준은 [`chatgpt-workspace/doribogo/README.md`](chatgpt-workspace/doribogo/README.md)에서 관리합니다.
-
----
-
-## 🛡️ 보안 규칙
-1. API Key, SSH Key, 개인 토큰(`.env`, `mcp.json` 등)은 절대로 Git에 커밋하지 않습니다. (Pre-Commit Hook으로 100% 자동 검사)
-2. 모든 작업은 Private 상태를 유지합니다.
