@@ -1,3 +1,7 @@
+# 🚧 HWP 자동 구간 5대 장애물 및 해결 아키텍처
+
+> **[운영 모델]**: 자동 실행 구간의 기술 장애물 해결서. 전체 워크플로의 승인 규칙(구조 변경 전 승인 게이트)은 `SEMI_AUTOMATION.md` 를 따른다.
+
 # 🚧 HWP Zero-Touch 5대 장애물 및 구체적 해결 설계도 (Implementation Blueprint)
 
 > **[목적]**
