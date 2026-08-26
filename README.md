@@ -101,3 +101,41 @@ CARD
 상세 설계와 운영 기준은 [`chatgpt-workspace/doribogo/README.md`](chatgpt-workspace/doribogo/README.md)에서 관리합니다.
 
 </details>
+
+<details>
+<summary>📄 HWP 자동화 — 자세히 보기</summary>
+
+### 📄 HWP 자동화 프로젝트
+
+**위치:** `chatgpt-workspace/hwp-automation/`
+
+AI가 HWP/HWPX 문서 작업을 직접 수행할 수 있는지 작은 실험부터 검증하는 프로젝트입니다.
+
+처음부터 HWP 자동화 기능을 전부 새로 만드는 것이 아니라, GitHub에 공개된 좋은 프로젝트들의 장점을 조사하고 필요한 기능만 조합해 **AI Agent가 실제 문서 작업을 수행할 수 있는 구조**를 만드는 것이 목표입니다.
+
+#### 🧩 참고 소스
+
+- `airmang/python-hwpx-automation` → HWPX 생성·편집·검증 및 Agent 연결
+- `6aneffy/hwpx-kit` → AI Agent가 HWPX 작업을 수행하는 방식
+- `sysphere/syhwp` → HWP/HWPX 내용 추출 및 AI 분석 입력
+- `martiniifun/pyhwpx` → Windows 한/글 프로그램 직접 제어
+
+#### 🏗️ 기본 방향
+
+```text
+🤖 AI Agent / GJC
+        ↓
+HWP 자동화 인터페이스
+        ↓
+문서 읽기 · 생성 · 수정 · 검증
+        ↓
+     완성 HWPX
+```
+
+각 오픈소스의 장점을 그대로 섞어 하나의 거대한 의존 구조를 만드는 것이 아니라, **우리 프로젝트의 인터페이스는 독립적으로 유지하고 필요한 엔진만 연결**합니다.
+
+현재는 아이디어·기술조사 단계이며, 작은 HWPX 읽기 → 생성 → 수정 실험부터 시작합니다.
+
+상세 설계와 진행 기준은 [`chatgpt-workspace/hwp-automation/README.md`](chatgpt-workspace/hwp-automation/README.md)에서 관리합니다.
+
+</details>
