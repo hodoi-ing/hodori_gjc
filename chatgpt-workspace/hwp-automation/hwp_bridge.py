@@ -91,8 +91,9 @@ class HWPBridge:
 
     # ---------------- 읽기 ----------------
 
-    def read_paragraphs(self) -> list[dict]:
-        ext = TextExtractor(self.work_path)
+    def read_paragraphs(self, source: Path | None = None) -> list[dict]:
+        src = source or self.work_path
+        ext = TextExtractor(src)
         return [
             {
                 "section": p.section.name,
@@ -128,7 +129,9 @@ class HWPBridge:
         patches: list[ParagraphTextPatch] = []
         matched_keys: set[str] = set()
 
-        for p in self.read_paragraphs():
+        # 항상 '원본 템플릿({{키}} 포함)'을 기준으로 읽는다.
+        # _수정본이 이미 존재해도 이전 결과물이 아닌 원본에서 다시 채운다.
+        for p in self.read_paragraphs(self.original_path):
             text = p["text"]
             if "{{" not in text:
                 continue
@@ -144,7 +147,7 @@ class HWPBridge:
                 )
 
         if patches:
-            result = paragraph_patch(self.work_path, patches)
+            result = paragraph_patch(self.original_path, patches)
             self.work_path.write_bytes(result.data)
         else:
             result = None
