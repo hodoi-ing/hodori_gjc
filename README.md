@@ -98,6 +98,8 @@ CARD
 
 도리보고는 검색할 때마다 원문과 이미지 자료를 GitHub에 쌓지 않습니다. 현재는 **ChatGPT 웹 검색 → 여러 출처 조사 → 이슈 분류 → 반응 확인 → 카드뉴스형 텍스트 작성** 방식으로 MVP를 검증하고 있습니다.
 
+출력 규격은 [`chatgpt-workspace/doribogo/CARD_FORMAT.md`](chatgpt-workspace/doribogo/CARD_FORMAT.md)에서 정의하며, **`IM_NOT_AI.md`를 1순위로 강제 적용**합니다. MVP 코드(`generated_code/trend_researcher.py`)도 이 규격에 맞춰 주제별 카드를 생성합니다.
+
 상세 설계와 운영 기준은 [`chatgpt-workspace/doribogo/README.md`](chatgpt-workspace/doribogo/README.md)에서 관리합니다.
 
 </details>
@@ -105,36 +107,52 @@ CARD
 <details>
 <summary>📄 HWP 자동화 — 자세히 보기</summary>
 
-### 📄 HWP 자동화 프로젝트
+### 📄 HWP 자동화 프로젝트 (반자동화)
 
 **위치:** `chatgpt-workspace/hwp-automation/`
 
-AI가 HWP/HWPX 문서 작업을 직접 수행할 수 있는지 작은 실험부터 검증하는 프로젝트입니다.
+여러 HWP/HWPX 문서를 읽고, 타깃 문서의 표·누름틀에 **내용만 자동으로** 정리하는 반자동화(Human-in-the-Loop) 프로젝트입니다.
 
-처음부터 HWP 자동화 기능을 전부 새로 만드는 것이 아니라, GitHub에 공개된 좋은 프로젝트들의 장점을 조사하고 필요한 기능만 조합해 **AI Agent가 실제 문서 작업을 수행할 수 있는 구조**를 만드는 것이 목표입니다.
+**핵심 원칙: 내용은 자동으로, 구조는 승인 후에.**
 
-#### 🧩 참고 소스
+- 표/누름틀의 기하 구조(행·열·병합·위치)는 그대로 두고 `{{키}}` 플레이스홀더의 값만 치환합니다.
+- 표 병합·행 추가 등 구조 변경이 필요한 순간에는 사용자 승인을 받은 뒤에만 진행합니다.
 
-- `airmang/python-hwpx-automation` → HWPX 생성·편집·검증 및 Agent 연결
-- `6aneffy/hwpx-kit` → AI Agent가 HWPX 작업을 수행하는 방식
-- `sysphere/syhwp` → HWP/HWPX 내용 추출 및 AI 분석 입력
-- `martiniifun/pyhwpx` → Windows 한/글 프로그램 직접 제어
+#### ✅ 실동작 엔진 (로컬 검증 완료)
 
-#### 🏗️ 기본 방향
+`chatgpt-workspace/hwp-automation/hwp_bridge.py` (CLI, `python3`)
 
-```text
-🤖 AI Agent / GJC
-        ↓
-HWP 자동화 인터페이스
-        ↓
-문서 읽기 · 생성 · 수정 · 검증
-        ↓
-     완성 HWPX
+```bash
+python3 hwp_bridge.py --read   문서.hwpx                    # 읽기/분석
+python3 hwp_bridge.py --fill   문서.hwpx '{"이름":"홍길동"}'  # 값만 채우기
+python3 hwp_bridge.py --verify 문서.hwpx                    # 무결성 검증
 ```
 
-각 오픈소스의 장점을 그대로 섞어 하나의 거대한 의존 구조를 만드는 것이 아니라, **우리 프로젝트의 인터페이스는 독립적으로 유지하고 필요한 엔진만 연결**합니다.
+- 원본은 절대 안 바뀌고, 결과는 `<원본>_수정본.hwpx`로 생성됩니다.
+- 반복 실행(재채우기)도 매번 원본 템플릿 기준으로 동작합니다.
 
-현재는 아이디어·기술조사 단계이며, 작은 HWPX 읽기 → 생성 → 수정 실험부터 시작합니다.
+#### 🧩 사용 엔진
+
+- `python-hwpx-automation` → 내용 주입(바이트 보존 `paragraph_patch`) + 읽기 + 검증 (실사용)
+- `syhwp` → 보조 파서
+- `pyhwpx` → 표 병합/행 추가 등 구조 변경 (Windows + 한글 설치 환경에서만)
+
+#### 🛠️ 구조 변경 (표 병합/행 추가) — XML 기반으로 완전 지원
+
+- 표 병합(`merge_table`), 행 추가(`insert_row_by_clone`), 행 삭제, 표 분리(`split_table`)가 전부 **XML 레벨에서 동작**합니다. (Windows/OLE 불필요)
+- 구조 변경은 **승인 게이트**를 거칩니다: `--plan`(dry-run, 승인 근거 transcript) → 사용자 승인 → `--apply`(실행).
+
+#### ⚠️ 남은 제약
+
+- 구형 `.hwp`(바이너리)는 `.hwpx` 변환 후에만 처리 가능합니다.
+- 중첩 표(표 안의 표)는 구조 변경이 불가합니다(fail-closed).
+
+#### 📚 설계 문서
+
+- `SEMI_AUTOMATION.md` — 반자동화 운영 규약 (승인 게이트)
+- `ZERO_TOUCH_CHALLENGES.md` — 자동 구간 기술 장애물 해결서
+- `TEMPLATE_PROTOCOL.md` — 템플릿 작성 규칙
+- `skills/hwp/SKILL.md` — GJC 실제 호출 스킬
 
 상세 설계와 진행 기준은 [`chatgpt-workspace/hwp-automation/README.md`](chatgpt-workspace/hwp-automation/README.md)에서 관리합니다.
 
