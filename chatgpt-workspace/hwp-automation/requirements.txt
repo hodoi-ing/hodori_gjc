@@ -1,15 +1,7 @@
-# HWP 자동화 파이프라인 의존성
-# 설치: pip install -r requirements.txt
-# 참고: 표 구조(OLE) 조작은 Windows + 아래아한글 설치 필수
+# HWP 반자동화 파이프라인 의존성 (실제 설치 검증 완료)
+# 설치: pip3 install --user --break-system-packages -r requirements.txt  (WSL2/Ubuntu)
+python-hwpx-automation>=7.0.3   # 내용 주입(paragraph_patch) + 읽기 + 검증 (실제 사용)
+syhwp>=0.0.7                    # 보조 파서 (선택)
 
-# --- XML 엔진 (OS 무관: 텍스트/누름틀 치환) ---
-python-hwpx-automation>=0.1.0
-hwpx-kit>=0.1.0
-syhwp>=0.1.0
-
-# --- OLE 엔진 (Windows 전용: 표 구조/서식 조작, 한컴오피스 필요) ---
-pyhwpx>=0.1.0
-
-# --- 안전성/동시성 ---
-filelock>=3.0           # OLE 싱글톤 워커 락 (멀티쓰레딩 충돌 방지)
-func-timeout>=4.0       # 팝업 무한 대기 방지용 taskkill 타임아웃 래퍼
+# ---- Windows 전용 (구조 변경: 표 병합/행 추가) ----
+pyhwpx>=1.7; sys_platform == 'win32'
