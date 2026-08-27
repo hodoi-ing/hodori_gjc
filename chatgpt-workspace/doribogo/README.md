@@ -1,6 +1,7 @@
-# 🛰️ 도리보고 (Doribogo)
+# 🛰️ 도리보고 (Doribogo) `v2.5.0`
 
-> 요리보고 저리보고, **도리보고!**
+> 요리보고 저리보고, **도리보고!**  
+> **현재 버전:** `v2.5.0` (Autonomous Pipeline & Thread-Style Editorial Release)
 
 AI 생태계에서 최근 무슨 일이 벌어지고 있는지 여러 곳을 돌아다니며 찾아보고, 서로 다른 이슈를 카드별로 정리한 뒤 관련 사이트의 반응까지 한눈에 보여주는 조사 프로젝트다.
 
@@ -23,6 +24,16 @@ chatgpt-workspace/
 `chatgpt-workspace`는 ChatGPT와 호도리가 함께 아이디어를 검증하고 작은 실험을 진행하는 작업 공간이다.
 
 현재 도리보고는 **코드를 크게 만드는 단계가 아니라 조사 방식과 결과 형식을 검증하는 MVP 단계**다.
+
+---
+
+## 📌 버전 관리 및 최근 업데이트 내역 (Version History)
+
+| 버전 | 출시일 | 핵심 변경 사항 | 자세히 |
+| :--- | :--- | :--- | :--- |
+| **`v2.5.0`** | 2026-08-27 | **5단계 자율 탐색 파이프라인** (`insane-search` WAF 우회 + `autonomous_discovery` 가치 평가 + 3차 교차 검증) & **스레드 매운맛 톤앤매너 렌더링** (`CARD_FORMAT.md` 2.0) | [CHANGELOG.md](./CHANGELOG.md) |
+| **`v2.0.0`** | 2026-08-20 | 투트랙 시스템(DRT/DRI) 구축 & `IM_NOT_AI.md` AI 로봇 문체 금지 지침 적용 | [CHANGELOG.md](./CHANGELOG.md) |
+| **`v1.0.0`** | 2026-08-10 | 크롤링 및 카드뉴스 텍스트 출력 MVP 최초 검증 | [CHANGELOG.md](./CHANGELOG.md) |
 
 ---
 
