@@ -13,7 +13,9 @@ description: 도리보고 자동 리서치 파이프라인 (DRT/DRI)
    - 프로젝트 내의 `fetch_hot_news.py`, `naver_crawler.py` 등 로컬 크롤링 스크립트를 즉시 `bash`로 실행한다.
    - 필요 시 GitHub API 검색이나 세팅된 Puppeteer MCP를 동원해 웹 데이터를 긁어온다.
 3. **가치 평가:** 수집된 데이터를 `autonomous_discovery.py`의 핵심 잣대(신선도, 실사용 영향도, 딥다이브 가치)로 평가해 쓰레기 정보를 걸러낸다.
-4. **출력 (Generation):** `CARD_FORMAT.md` 레이아웃과 `IM_NOT_AI.md`의 문장 규칙(인간적이고 매운맛 텐션)을 엄격히 적용해 카드를 렌더링한다.
+4. **출력 및 노션 동기화 (Generation & Notion Sync):**
+   - `CARD_FORMAT.md` 레이아웃과 `IM_NOT_AI.md`의 문장 규칙(인간적이고 매운맛 텐션)을 엄격히 적용해 카드를 렌더링한다.
+   - 세팅된 Notion MCP (`notion-mcp-server` / API)를 사용해 `🧬 개인 AI 마스터 DB` (`fc476391-66f1-4ce9-88c6-49b232ffbac1`) 및 `[호도리저장소]` 페이지에 리서치 결과 카드를 자동 기록/동기화한다.
 
 ## 3. 제약 사항 (Constraints)
 - 사용자에게 "검색할까요?" 묻지 말고 즉시 백그라운드 스크립트를 돌려라.

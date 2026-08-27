@@ -4,6 +4,15 @@
 
 ---
 
+## 🧠 [v2.6.0] - 2026-08-27 (Notion MCP Integration & Knowledge Base Auto-Sync)
+
+### 🆕 주요 신규 기능 (New Features)
+- **Notion MCP 연동 및 자동 동기화 구축:**
+  - `~/.gjc-free/mcp.json` 내 `notion-mcp-server` 검증 및 API 연동 완료.
+  - 리서치 결과를 Notion `🧬 개인 AI 마스터 DB` (`fc476391-66f1-4ce9-88c6-49b232ffbac1`) 및 `[호도리저장소]` (`3c8401c8-bc0f-8147-b36b-db4ca9c13b29`) 페이지로 자동 동기화할 수 있는 수집/발행 파이프라인 추가.
+  - `RADAR.md` 내 노션 데이터베이스 속성 필드 맵핑(이름, AI요약, AI해석, 출처, 분류, 중요도, 자동화가능성 등) 명시.
+
+---
 ## 🚀 [v2.5.0] - 2026-08-27 (Autonomous Pipeline & Thread-Style Editorial Release)
 
 ### 🆕 주요 신규 기능 (New Features)
