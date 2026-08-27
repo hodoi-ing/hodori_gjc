@@ -19,6 +19,7 @@
 
 - `unclejobs.ai`
 - `choi.openai`
+- `junyoung.ai`
 
 > 공유 링크(`threads.com/share/...`)는 원문 URL이 아닐 수 있다. 공유 링크를 바로 읽지 못하면 계정명·게시물 문구·검색엔진 색인 결과 등을 이용해 원문 후보를 찾고, 확인 가능한 정보만 사용한다.
 
