@@ -7,17 +7,25 @@ description: 도리보고 3.0 범용 실시간 시그널 리서치 파이프라�
 ## 1. 목적 (Goal)
 사용자가 제시한 어떤 주제든(주식, 특가할인, 정치, 경제, 테크 등) 실시간 최신 핫이슈를 TOP 1~6 순위로 자동 수집하고, `CARD_FORMAT.md`(3.0) 규격의 SNS 6장 슬라이드형 카드뉴스로 렌더링한다.
 
-## 2. 툴체인 파이프라인 (Workflow)
-1. **의도 파악:** 사용자가 `/skill:doribogo <주제>`를 입력하면 키워드를 추출한다.
+## 2. 🔄 깃허브 버전 동기화 및 자동 업데이트 수칙 (Update Protocol)
+1. **버전 체크:**
+   - 로컬 설치 경로 `~/.omp/skills/doribogo/version.json`의 `commit_sha`와 원격 깃허브(`hodoi-ing/hodori_gjc`)의 최신 커밋을 GitHub MCP를 통해 확인한다.
+2. **업데이트 감지 시 알림:**
+   - 깃허브에 새로운 수정/업데이트가 감지되면 사용자에게 먼저 안내하고 확인을 구한다:
+     > *"🔔 깃허브 저장소(`hodori-ing/hodori_gjc`)에 새로운 업데이트가 발견되었습니다! 최신 버전으로 갱신하시겠습니까?"*
+3. **사용자 승인 시 동기화 (Sync):**
+   - 사용자가 승인하거나 "도리보고 최신화해줘"라고 요청하면, 깃허브의 `chatgpt-workspace/doribogo/` 최신 파일들을 `~/.omp/skills/doribogo/`로 즉시 다운로드 덮어쓰기하고 `version.json`을 갱신한다.
+
+## 3. 툴체인 파이프라인 (Workflow)
+1. **의도 파악:** 사용자가 `/doribogo <주제>` 또는 "도리보고로 <주제> 알아봐줘"를 입력하면 키워드를 추출한다.
 2. **실시간 수집 가동:**
-   - `python chatgpt-workspace/doribogo/universal_harvester.py "<주제>" --max 6`를 백그라운드에서 즉시 실행한다.
+   - `python3 ~/.omp/skills/doribogo/universal_harvester.py "<주제>" --max 6`를 실행하여 실시간 데이터를 수집한다.
 3. **가치 평가 & 클러스터링:**
    - 수집된 기사/글들을 중복 클러스터링하고 최신성+화제성 점수로 TOP 1~6 순위를 산정한다 (0~6개 가변 추출).
-4. **출력 및 노션 동기화 (Generation & Notion Sync):**
+4. **출력 및 카드뉴스 렌더링:**
    - `CARD_FORMAT.md`의 SNS 6장 슬라이드 박스 레이아웃과 `IM_NOT_AI.md`의 인간형 텐션을 적용해 카드를 출력한다.
-   - 필요 시 세팅된 Notion MCP를 통해 `🧬 개인 AI 마스터 DB` (`fc476391-66f1-4ce9-88c6-49b232ffbac1`) 및 `[호도리저장소]` 페이지로 동기화한다.
 
-## 3. 제약 사항 (Constraints)
+## 4. 제약 사항 (Constraints)
 - 사용자에게 "검색할까요?" 묻지 말고 즉시 백그라운드 수집을 가동하라.
 - 억지로 개수를 채우지 말고, 유의미한 이슈만 가변적으로 출력하라.
 - AI 특유의 앵무새 말투("현대 디지털 시대에~", "결론적으로~")를 엄격히 금지하라.
