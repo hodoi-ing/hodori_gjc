@@ -4,6 +4,23 @@
 
 ---
 
+## 🚀 [v3.0.0] - 2026-08-28 (Universal Multi-Domain Signal Harvester & SNS 6-Slide Engine)
+
+### 🆕 주요 신규 기능 (New Features)
+- **전 분야(Multi-Domain) 실시간 시그널 엔진 탑재 (`universal_harvester.py`):**
+  - AI뿐만 아니라 주식/경제/금융, 할인/특가/핫딜, 정치/시사, 일반 트렌드 등 사용자가 어떤 주제를 던져도 실시간 핫이슈 자동 수집.
+  - 카테고리 자동 감지(Category Router) 및 복합 쿼리 최적화.
+- **TOP 1~6 가변 핫이슈 클러스터링 알고리즘:**
+  - 언급량(클러스터 크기) + 최신성(Recency Score)을 종합한 `hot_score`로 핫한 순위 자동 정렬.
+  - 억지 채우기 없이 0~6개 가변 추출 (이슈가 없으면 평온 안내 메시지 출력).
+- **SNS 6장 슬라이드 카드뉴스 포맷 정립 (`CARD_FORMAT.md` v3.0):**
+  - 스레드/인스타그램 전용 장당 1메시지 슬롯 규격 (표지 훅 ➔ 발단 팩트 ➔ 핵심 비교 ➔ 찐 반응 ➔ 호도리 가이드 ➔ CTA).
+  - `IM_NOT_AI.md` 원칙에 입각한 기계적 말투 완전 배제.
+- **GJC 스킬 전면 업그레이드:**
+  - `.gjc/skills/doribogo/SKILL.md` 연동으로 `/skill:doribogo <어떤주제든>` 한 줄 실행 지원.
+
+---
+
 ## 🧠 [v2.6.0] - 2026-08-27 (Notion MCP Integration & Knowledge Base Auto-Sync)
 
 ### 🆕 주요 신규 기능 (New Features)
@@ -13,6 +30,7 @@
   - `RADAR.md` 내 노션 데이터베이스 속성 필드 맵핑(이름, AI요약, AI해석, 출처, 분류, 중요도, 자동화가능성 등) 명시.
 
 ---
+
 ## 🚀 [v2.5.0] - 2026-08-27 (Autonomous Pipeline & Thread-Style Editorial Release)
 
 ### 🆕 주요 신규 기능 (New Features)
@@ -23,10 +41,6 @@
   - `IM_NOT_AI.md` 원칙에 기반한 매운맛 텐션 강제 적용.
 - **GJC Native Skill 자동화 패키징:**
   - `.gjc/skills/doribogo/SKILL.md` 스킬 정의 추가 (`/skill:doribogo` 명령어로 무인 리서치 실행 지원).
-
-### 🎯 레이더 및 소스 확장 (Radar Updates)
-- `RADAR.md` 내 최신 테크 인플루언서 계정 `@junyoung.ai` 감시 목록 반영.
-- GitHub 발견 레이더(Trending / Stars 20만+ 레포지토리 및 실시간 릴리스 패치) 연동 강화.
 
 ---
 
