@@ -36,42 +36,46 @@ ChatGPT와 호도리가 함께 아이디어를 만들고, 작은 실험으로 �
 
 이 폴더 안에는 ChatGPT와 함께 설계·검증 중인 프로젝트와 실험 기록을 관리합니다.
 
-<details>
-<summary>🐯 도리보고 (v3.0.0) — 자세히 보기</summary>
+<details open>
+<summary>🐯 도리보고 (v3.5.0) — 자세히 보기</summary>
 
-### 🐯 도리보고 (Doribogo `v3.0.0`)
+### 🐯 도리보고 (Doribogo `v3.5.0`)
 
 **위치:** `chatgpt-workspace/doribogo/`
 
 > 요리보고 저리보고, **도리보고!**
 
-어떤 주제든(주식, 특가할인, 정치, 경제, IT/AI 등) 실시간 이슈를 발굴해 **TOP 1~6 핫한 순**으로 정렬하고, SNS(스레드/인스타그램)에 즉시 발행 가능한 **6장 슬라이드 카드뉴스**로 가공해 주는 범용 리서치 엔진입니다.
+어떤 키워드든(주식, 특가할인, 정치, 경제, IT, 브랜드명 등) 던지면 **5대 다각도 레이더(공식 SNS · 특가 · 게릴라 · 스펙 · 여론)**가 동시에 가동되어 실시간 핫이슈를 낚아채고, SNS(스레드/인스타그램)에 즉시 올릴 수 있는 **6장 슬라이드 카드뉴스**로 가공해 주는 전천후 리서치 엔진입니다.
 
-#### 🔀 주요 특징 및 모드
+#### 🔀 4대 핵심 아키텍처
 
-1. **전 분야(Multi-Domain) 실시간 시그널 엔진 (`universal_harvester.py`)**:
-   - 사용자가 주제만 입력하면 카테고리(주식/금융, 할인/특가, 정치/시사, IT/테크, 일반)를 자동 판별해 최적의 실시간 소스(Google News RSS, Reddit 등)를 타격합니다.
-2. **TOP 1~6 핫이슈 클러스터링 (0~6개 가변 추출)**:
-   - 중복 보도를 하나로 묶고, `언급 횟수(2.0) + 최신성 시간 가중치`로 `hot_score`를 계산해 가장 뜨거운 이슈 순으로 최대 6개까지 선별합니다. (이슈가 2개면 2개만, 없으면 평온 안내만 출력)
-3. **SNS 6장 슬라이드 카드뉴스 포맷 (`CARD_FORMAT.md` v3.0)**:
-   - `1장 표지(훅) ➔ 2장 사건 발단(팩트) ➔ 3장 핵심 포인트(비교) ➔ 4장 현장 반응(여론) ➔ 5장 호도리 시선(가이드) ➔ 6장 출처(CTA)` 슬롯 구조로 글자 수를 엄격히 제한하여 가독성을 극대화합니다.
-4. **`IM_NOT_AI.md` 엄격 준수**:
-   - 상투적인 AI 로봇 말투("현대 디지털 시대에", "결론적으로")를 완전히 배제하고, 전문 크리에이터의 생생한 톤앤매너를 유지합니다.
+1. **5대 다각도 시그널 매트릭스 (`universal_harvester.py`)**:
+   - 단일 키워드 입력 시 5개 스레드가 `[📱공식SNS · 💰특가대란 · ⚡게릴라사건 · 🛠️스펙출시 · 🗣️여론꿀팁]`을 동시 타격.
+   - 인스타그램, X, 스레드 브랜드 공식 계정 피드 최우선 가산점(`+15.0`) 부여.
+2. **insane-search 3단계 WAF 관통 파이프라인**:
+   - 1차 크롬 120 UA 직통 ➔ 2차 Jina Reader(`r.jina.ai`) 글로벌 프록시 ➔ 3차 네이버 모바일/X 신디케이션 자동 우회로 차단 없는 본문 수집.
+3. **최근 48시간(`when:2d`) 엄격 최신성 & TOP 1~6 가변 정렬**:
+   - 과거 기사 유입을 원천 차단하고, 발생 시각(Hours Ago) 기준 초신선도 가중치로 최신 속보 1위 배치 (0~6개 가변 추출).
+4. **SNS 6장 슬라이드 카드뉴스 포맷 (`CARD_FORMAT.md` v3.0)**:
+   - `1장 표지(훅) ➔ 2장 사건 발단(팩트) ➔ 3장 핵심 포인트(비교) ➔ 4장 현장 반응(여론) ➔ 5장 호도리 시선(가이드) ➔ 6장 출처(CTA)` 장당 1메시지 슬롯 규격 및 `IM_NOT_AI.md` 엄격 준수.
 
 #### 🚀 빠른 실행 (CLI)
 
 ```bash
-# 주식/경제 분야 실시간 핫이슈 카드뉴스
-python chatgpt-workspace/doribogo/universal_harvester.py "금융투자소득세"
+# 1. 주식/경제 분야 실시간 핫이슈 카드뉴스
+python3 chatgpt-workspace/doribogo/universal_harvester.py "금융투자소득세"
 
-# 할인/쇼핑 특가 핫이슈 카드뉴스
-python chatgpt-workspace/doribogo/universal_harvester.py "아이폰 16 할인"
+# 2. 브랜드 공식 SNS & 특가 대란 탐색
+python3 chatgpt-workspace/doribogo/universal_harvester.py "다이슨"
 
-# GJC 단축 스킬 실행
-/skill:doribogo 테슬라
+# 3. 테크/오픈소스 게릴라 핫이슈 탐색
+python3 chatgpt-workspace/doribogo/universal_harvester.py "OpenCode Go"
+
+# 4. GJC / omp 단축 스킬 실행
+/doribogo 아이폰 16 할인
 ```
 
-상세 설계와 변경 내역은 [`chatgpt-workspace/doribogo/README.md`](chatgpt-workspace/doribogo/README.md) 및 [`CHANGELOG.md`](chatgpt-workspace/doribogo/CHANGELOG.md)에서 관리합니다.
+상세 설계와 기술 문서는 [`chatgpt-workspace/doribogo/README.md`](chatgpt-workspace/doribogo/README.md), [`SEARCH_ARCHITECTURE.md`](chatgpt-workspace/doribogo/SEARCH_ARCHITECTURE.md), [`CHANGELOG.md`](chatgpt-workspace/doribogo/CHANGELOG.md)에서 관리합니다.
 
 </details>
 

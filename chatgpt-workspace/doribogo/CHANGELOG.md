@@ -4,57 +4,32 @@
 
 ---
 
-## 🚀 [v3.0.0] - 2026-08-28 (Universal Multi-Domain Signal Harvester & SNS 6-Slide Engine)
+## 🚀 [v3.5.0] - 2026-08-28 (5-Radar Multi-Angle Harvester & insane-search WAF Penetration Release)
 
 ### 🆕 주요 신규 기능 (New Features)
-- **전 분야(Multi-Domain) 실시간 시그널 엔진 탑재 (`universal_harvester.py`):**
-  - AI뿐만 아니라 주식/경제/금융, 할인/특가/핫딜, 정치/시사, 일반 트렌드 등 사용자가 어떤 주제를 던져도 실시간 핫이슈 자동 수집.
-  - 카테고리 자동 감지(Category Router) 및 복합 쿼리 최적화.
+- **5대 다각도 시그널 매트릭스 병렬 수집기 탑재 (`universal_harvester.py`):**
+  - 단일 키워드 입력 시 5개 스레드가 `[📱공식SNS · 💰특가대란 · ⚡게릴라사건 · 🛠️스펙출시 · 🗣️여론꿀팁]`을 동시 타격.
+  - 브랜드 인스타그램/X/스레드 공식 계정 피드 최우선 가산점(`+15.0`) 부여.
+- **insane-search 3단계 WAF 관통 파이프라인 연동:**
+  - 1차 브라우저 UA 직통 ➔ 2차 Jina Reader(`r.jina.ai`) 글로벌 프록시 ➔ 3차 네이버 모바일/X 신디케이션 자동 우회.
+- **최근 48시간(`when:2d`) 엄격 최신성 윈도우 강제:**
+  - 과거 기사 유입을 원천 차단하고, 발생 시각(Hours Ago) 기준 초신선도 가중치로 최신 속보 1위 배치.
 - **TOP 1~6 가변 핫이슈 클러스터링 알고리즘:**
-  - 언급량(클러스터 크기) + 최신성(Recency Score)을 종합한 `hot_score`로 핫한 순위 자동 정렬.
-  - 억지 채우기 없이 0~6개 가변 추출 (이슈가 없으면 평온 안내 메시지 출력).
-- **SNS 6장 슬라이드 카드뉴스 포맷 정립 (`CARD_FORMAT.md` v3.0):**
-  - 스레드/인스타그램 전용 장당 1메시지 슬롯 규격 (표지 훅 ➔ 발단 팩트 ➔ 핵심 비교 ➔ 찐 반응 ➔ 호도리 가이드 ➔ CTA).
-  - `IM_NOT_AI.md` 원칙에 입각한 기계적 말투 완전 배제.
-- **GJC 스킬 전면 업그레이드:**
-  - `.gjc/skills/doribogo/SKILL.md` 연동으로 `/skill:doribogo <어떤주제든>` 한 줄 실행 지원.
+  - 중복 보도 병합 및 화제성 순 최대 6개 추출 (이슈 부재 시 평온 안내 출력).
+- **SNS 6장 슬라이드 카드뉴스 템플릿 정립 (`CARD_FORMAT.md` v3.0):**
+  - 인스타그램/스레드 전용 슬롯 규격 (`표지 ➔ 팩트 ➔ 비교 ➔ 여론 ➔ 호도리가이드 ➔ CTA`) 및 `IM_NOT_AI.md` 엄격 적용.
 
 ---
 
 ## 🧠 [v2.6.0] - 2026-08-27 (Notion MCP Integration & Knowledge Base Auto-Sync)
-
-### 🆕 주요 신규 기능 (New Features)
-- **Notion MCP 연동 및 자동 동기화 구축:**
-  - `~/.gjc-free/mcp.json` 내 `notion-mcp-server` 검증 및 API 연동 완료.
-  - 리서치 결과를 Notion `🧬 개인 AI 마스터 DB` (`fc476391-66f1-4ce9-88c6-49b232ffbac1`) 및 `[호도리저장소]` (`3c8401c8-bc0f-8147-b36b-db4ca9c13b29`) 페이지로 자동 동기화할 수 있는 수집/발행 파이프라인 추가.
-  - `RADAR.md` 내 노션 데이터베이스 속성 필드 맵핑(이름, AI요약, AI해석, 출처, 분류, 중요도, 자동화가능성 등) 명시.
-
----
-
-## 🚀 [v2.5.0] - 2026-08-27 (Autonomous Pipeline & Thread-Style Editorial Release)
-
-### 🆕 주요 신규 기능 (New Features)
-- **5단계 자율 탐색 파이프라인 (Autonomous Search Pipeline) 탑재:**
-  - `다각도 병렬 데이터 수집 ➔ insane_search WAF 우회 & 마크다운 본문 추출 ➔ autonomous_discovery 가치 평가 ➔ 3단계 교차 검증 ➔ 렌더링` 자율 탐색 룹 구축.
-- **스레드(Threads) 특화 톤앤매너 시스템 탑재 (`CARD_FORMAT.md` v2.0):**
-  - 단순 요약을 벗어나 `공감 훅(Hook) + 도입부 팩트 + 찐광기 현장 반응(Storytelling) + 전문가용 차별화 인사이트` 4단계 구조화.
-  - `IM_NOT_AI.md` 원칙에 기반한 매운맛 텐션 강제 적용.
-- **GJC Native Skill 자동화 패키징:**
-  - `.gjc/skills/doribogo/SKILL.md` 스킬 정의 추가 (`/skill:doribogo` 명령어로 무인 리서치 실행 지원).
+- Notion MCP 연동 (`🧬 개인 AI 마스터 DB` 및 `[호도리저장소]` 페이지 자동 동기화).
 
 ---
 
 ## 🛠️ [v2.0.0] - 2026-08-20 (Doribogo 2.0 Core Architecture)
-
-### 📌 구조 변경 (Architecture Changes)
-- **투트랙 탐색 시스템 정립:**
-  - `DRT` (Dori + Topic: 사용자 지정 주제 심층 탐색)
-  - `DRI` (Dori + Issue: 자율 이슈 발굴 + GitHub 급상승 프로젝트 필수 캡처)
-- **AI 봇 문체 금지 지침 (`IM_NOT_AI.md`) 적용:**
-  - 상투적 번역투 및 "현대 디지털 시대에", "결론적으로" 식의 앵무새 문체 엄격 금지.
+- 투트랙 시스템(DRT/DRI) 구축 및 `IM_NOT_AI.md` AI 로봇 문체 금지 지침 제정.
 
 ---
 
 ## 🌱 [v1.0.0] - 2026-08-10 (MVP Initial Release)
 - 기본 뉴스 스크래핑 및 카드뉴스 텍스트 렌더링 MVP 검증.
-- Naver 뉴스/블로그 크롤러 및 기본 수집 스크립트 작성.
