@@ -1,11 +1,15 @@
-"""도리보고 3.2: 실시간 최신성 강제(when:1d~3d) & SNS/커뮤니티 날것 시그널 수집 엔진.
+"""도리보고 3.3: 5대 레이더 (브랜드 공식 SNS 피드 + 4대 시그널) & 실시간 카드뉴스 엔진.
 
-- 4대 다각도 레이더 병렬 탐색 (가격, 게릴라, 스펙, 여론)
-- 최근 24~72시간(when:1d~3d) 엄격 시간 윈도우 필터링 적용 (과거 기사 원천 차단)
+- 5대 다각도 레이더 병렬 탐색:
+  0) 📱 브랜드 공식 SNS (X · 인스타그램 · 스레드 공식/인플루언서 피드 최우선 스캔)
+  1) 💰 가격/특가/대란 (역대가, 반값, 0원, 핫딜, 쿠폰, 청구할인, 라방 등)
+  2) ⚡ 게릴라/돌발/사건 (기습, 무료, 테스트, 가격오류, 품절, 재입고, 유출 등)
+  3) 🛠️ 스펙/신기능/출시 (신규, 출시, 업데이트, 성능, 벤치마크, 개편, 비교 등)
+  4) 🗣️ 여론/논란/꿀팁 (논란, 결함, 꿀팁, 실사용, 후기, 고질병, 찐반응 등)
+- 최근 24~72시간 엄격 시간 윈도우 필터링 (과거 기사 원천 차단)
 - 최신 발생 시각(Hours Ago) 기준 초신선도 가중치 부여 (방금 전/1시간 전 이슈 최우선 배치)
 - 주제당 최대 6개(TOP 1~6) 핫한 순 정렬 + 0~6개 가변 추출
 - SNS(스레드/인스타그램) 최적화 6장 슬라이드형 카드뉴스 렌더링
-- IM_NOT_AI.md 원칙 준수
 """
 
 from __future__ import annotations
@@ -22,8 +26,12 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-# 4대 다각도 트리거 키워드 매트릭스
+# 5대 다각도 트리거 키워드 매트릭스
 TRIGGER_RADARS = {
+    "BRAND_SNS": {
+        "label": "📱 공식 SNS (X·스레드·인스타)",
+        "query_template": '(site:threads.net OR site:x.com OR site:instagram.com) "{topic}"'
+    },
     "DEAL_PRICE": {
         "label": "💰 가격/특가/대란",
         "keywords": ["역대가", "최저가", "반값", "핫딜", "대란", "특가", "세일", "쿠폰", "0원", "청구할인", "라방", "타임딜"]
@@ -44,7 +52,7 @@ TRIGGER_RADARS = {
 
 
 class UniversalDoribogoEngine:
-    """최근 24~72시간 내 실시간 핫이슈만 엄격히 선별하는 엔진."""
+    """브랜드 공식 SNS를 최우선 체크하고 4대 시그널을 병렬 스캔하는 도리보고 3.3 엔진."""
 
     def __init__(self, topic: str, days_window: int = 2):
         self.topic = topic.strip()
@@ -64,8 +72,12 @@ class UniversalDoribogoEngine:
         return "일반/트렌드"
 
     def _fetch_radar(self, radar_key: str, radar_info: dict) -> list[dict]:
-        kw_query = " OR ".join(radar_info["keywords"][:6])
-        query = f"{self.topic} ({kw_query}) when:{self.days_window}d"
+        if radar_key == "BRAND_SNS":
+            query = f'{radar_info["query_template"].format(topic=self.topic)} when:{max(self.days_window, 7)}d'
+        else:
+            kw_query = " OR ".join(radar_info["keywords"][:6])
+            query = f"{self.topic} ({kw_query}) when:{self.days_window}d"
+
         encoded = urllib.parse.quote(query)
         url = f"https://news.google.com/rss/search?q={encoded}&hl=ko&gl=KR&ceid=KR:ko"
 
@@ -98,30 +110,24 @@ class UniversalDoribogoEngine:
                         "raw_title": raw_title,
                         "link": link,
                         "pub_date": pub_dt,
-                        "source": source or "주요 출처",
+                        "source": source or "공식/주요 출처",
                     })
         except Exception:
             pass
         return items
 
     def fetch_and_cluster_issues(self, max_issues: int = 6) -> list[dict]:
-        """4대 레이더를 병렬로 스캔하고, 최신순 및 화제성 순으로 정렬."""
+        """5대 레이더를 병렬로 스캔하고, 공식 SNS와 최신 화제성 순으로 정렬."""
         all_items: list[dict] = []
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(self._fetch_radar, k, v) for k, v in TRIGGER_RADARS.items()]
             for fut in as_completed(futures):
                 all_items.extend(fut.result())
 
-        if len(all_items) < 2 and self.days_window <= 2:
-            self.days_window = 7
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = [executor.submit(self._fetch_radar, k, v) for k, v in TRIGGER_RADARS.items()]
-                for fut in as_completed(futures):
-                    all_items.extend(fut.result())
-
         if not all_items:
             return []
 
+        # 중복 링크 제거
         seen_links = set()
         unique_items = []
         for it in all_items:
@@ -129,6 +135,7 @@ class UniversalDoribogoEngine:
                 seen_links.add(it["link"])
                 unique_items.append(it)
 
+        # 유사 제목 클러스터링
         clusters: list[dict] = []
         for it in unique_items:
             words = set(re.findall(r"[가-힣a-zA-Z0-9]{2,}", it["clean_title"]))
@@ -140,7 +147,7 @@ class UniversalDoribogoEngine:
                     break
 
             if matched:
-                matched["items".append(it)] if False else matched["items"].append(it)
+                matched["items"].append(it)
                 matched["keywords"].update(words)
                 matched["radars"].add(it["radar"])
                 if it["pub_date"] > matched["latest_date"]:
@@ -155,13 +162,18 @@ class UniversalDoribogoEngine:
                     "items": [it],
                 })
 
+        # 핫이슈 점수 산정 (최신성 + 공식 SNS 포착 보너스 + 다각도 레이더 감지 보너스)
         now = datetime.now(timezone.utc)
         for c in clusters:
             count = len(c["items"])
             hours_ago = max(0.1, (now - c["latest_date"]).total_seconds() / 3600.0)
             recency_score = 48.0 / (hours_ago + 0.5)
             radar_diversity_bonus = len(c["radars"]) * 2.0
-            c["hot_score"] = (count * 2.0) + recency_score + radar_diversity_bonus
+            # 공식 SNS 채널(X, 인스타, 스레드)에서 직접 감지된 경우 특별 우선 가산점 부여
+            is_brand_sns = any("공식 SNS" in r for r in c["radars"])
+            brand_sns_bonus = 15.0 if is_brand_sns else 0.0
+
+            c["hot_score"] = (count * 2.0) + recency_score + radar_diversity_bonus + brand_sns_bonus
             c["hours_ago"] = hours_ago
 
         clusters.sort(key=lambda x: x["hot_score"], reverse=True)
@@ -234,7 +246,7 @@ class UniversalDoribogoEngine:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="도리보고 3.2 실시간 최신성 강화 수집기")
+    parser = argparse.ArgumentParser(description="도리보고 3.3 5대 레이더(공식 SNS 포함) 수집기")
     parser.add_argument("topic", help="조사할 주제")
     parser.add_argument("--max", type=int, default=6, help="최대 추출 개수")
     parser.add_argument("--days", type=int, default=2, help="검색 시간 윈도우 (기본 최근 2일)")
@@ -248,8 +260,8 @@ def main() -> int:
         print(json.dumps({"topic": args.topic, "category": engine.category, "count": len(issues), "issues": issues}, indent=2, ensure_ascii=False))
         return 0
 
-    print(f"# 🐯 도리보고 3.2 실시간 리서치: [{args.topic}]")
-    print(f"> 📊 분야: `{engine.category}` | ⏱️ 시간 윈도우: `최근 {engine.days_window}일 이내 엄격 필터링`")
+    print(f"# 🐯 도리보고 3.3 실시간 리서치: [{args.topic}]")
+    print(f"> 📊 분야: `{engine.category}` | 🛰️ 5대 레이더 동시 탐색 (📱공식SNS · 💰특가 · ⚡게릴라 · 🛠️스펙 · 🗣️여론)")
     print(f"> 🔍 발견된 최신 핫이슈: **{len(issues)}개** (최대 {args.max}개 중)\n")
 
     if not issues:
