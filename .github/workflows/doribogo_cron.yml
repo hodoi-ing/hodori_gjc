@@ -1,0 +1,51 @@
+name: 🐯 도리보고 24/7 무인 자동화 (30분 주기)
+
+on:
+  schedule:
+    # 30분마다 자동 실행 (UTC 기준 0분, 30분)
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # 깃허브 웹에서 'Run workflow' 버튼 눌러 수동 즉시 실행도 가능
+
+jobs:
+  doribogo-radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # 5분 초과 시 강제 종료
+
+    steps:
+      - name: 📥 1. 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 2. 파이썬 3.11 환경 세팅
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 3. 패키지 설치
+        run: |
+          pip install requests python-dotenv
+
+      - name: 🛰️ 4. 도리보고 5대 레이더 가동 & 디스코드/텔레그램 카드뉴스 발송
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python -c "
+          import os
+          import sys
+          sys.path.append('.')
+          import doribogo_bot
+
+          doribogo_bot.DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL', '')
+          doribogo_bot.TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+          doribogo_bot.TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
+          doribogo_bot.GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+
+          keywords = ['백컨트리 360', '캠핑 텐트 특가']
+          for kw in keywords:
+              print(f'[*] 정기 감시 가동: {kw}')
+              card = doribogo_bot.run_full_doribogo(kw)
+              doribogo_bot.send_broadcast(f'📢 [24/7 정기 감시: {kw}]', card)
+          print('[*] 모든 정기 알림 발송 완료!')
+          "
