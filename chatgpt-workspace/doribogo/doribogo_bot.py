@@ -67,7 +67,7 @@ def send_discord(title: str, text: str, color: int = 0x3B82F6) -> bool:
         return False
 
     payload = {
-        "username": "🐯 도리보고 24/7 레이더",
+        "username": "dori bot",
         "avatar_url": "https://raw.githubusercontent.com/hodoi-ing/lecture-auto-bot/main/icons/icon128.png",
         "embeds": [
             {
