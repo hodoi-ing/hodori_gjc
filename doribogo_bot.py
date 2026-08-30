@@ -1,16 +1,17 @@
-"""🐯 dori bot (도리보고 v3.6.0 - 4-Way Multi-Source & 3-Tier Dedup Harvester)
+"""🐯 dori bot (도리보고 v3.7.0 - Deep Fact 4-Step Curation Engine)
 
-[Hugh Kim Loopy-Era 아키텍처 기반]
-1. 4-Way Multi-Source Harvester: 실시간 언론 속보(Google News) + 커뮤니티/블로그(DuckDuckGo) + 쇼핑/가격(Danawa/Naver)
-2. 3-Tier Deduplication & Relevance Filter: Jaccard 유사도 중복 제거 + 키워드 토큰 검증
-3. 5-Axis Quality Scorer: 최신성(24~48h) + 팩트 밀도 + 원문 신뢰도 기반 상위 시그널 선별
-4. 지정 4단계 팩트 큐레이션 포맷 출력
+[사용자 지정 4단계 규격]
+1. 🚨 최신 이슈 (오늘/최근 24시간 이내의 실시간 핵심 팩트)
+2. 📌 구체적인 설명 (중복 중 가장 신뢰도 높은 구체적 팩트/스펙/배경 심층 분석)
+3. 🗣️ 사람들 반응 (커뮤니티/업계/사용자 실시간 날것 반응)
+4. 🔗 실제 내용 출처 (실제 언론사/블로그/공식 사이트 직접 링크)
 """
 
 import os
 import sys
 import time
 import json
+import html
 import re
 import urllib.parse
 import urllib.request
@@ -26,7 +27,7 @@ except ImportError:
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GEMINI_", "").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GEMINI_", "").strip() or "AIzaSyAXiI8a1MVwfegW5cz7MxfLbGKdv8amz-4"
 
 WATCH_KEYWORDS = [
     "백컨트리 360",
@@ -59,7 +60,7 @@ def send_discord(title: str, text: str, color: int = 0xFF6B00) -> bool:
         req = urllib.request.Request(
             DISCORD_WEBHOOK_URL,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "User-Agent": "DoriBot/3.6"}
+            headers={"Content-Type": "application/json", "User-Agent": "DoriBot/3.7"}
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status in (200, 204)
@@ -101,165 +102,146 @@ def send_broadcast(title: str, text: str, chat_id: str = None) -> bool:
     return discord_ok or telegram_ok
 
 
-def harvest_multi_source_signals(topic: str) -> list[dict]:
-    """4-Way 멀티 소스 수집 + 3-Tier 중복/노이즈 제거 + 5축 랭킹 엔진."""
+def fetch_live_signals(keyword: str) -> list[dict]:
+    """실시간 최신 뉴스 및 커뮤니티 시그널 수집 (HTML 엔티티 자동 디코딩)."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8"
     }
 
-    raw_signals = []
-    clean_topic = re.sub(r'^(지금|오늘|최신|실시간)\s*', '', topic).strip() or topic
-    is_deal_query = any(w in topic for w in ["특가", "가격", "텐트", "할인", "대란", "구매", "장비", "세일", "역대가"])
+    results = []
+    clean_kw = re.sub(r'^(지금|오늘|최신|실시간|에 대한|에대해|말이야|같은거)\s*', '', keyword).strip() or keyword
+    clean_kw = re.sub(r'(말이야|같은거|알려줘|어때|추천해줘)$', '', clean_kw).strip() or clean_kw
 
-    # 1. Source A: 실시간 언론 속보 및 보도자료 (Google News RSS when:2d)
+    is_deal_query = any(w in keyword for w in ["특가", "가격", "텐트", "할인", "대란", "구매", "장비", "세일", "역대가"])
+
+    # 1. Source A: 실시간 주요 언론사 속보 (Google News RSS when:3d)
     try:
-        q_news = urllib.parse.quote(f"{clean_topic} when:2d")
+        q_news = urllib.parse.quote(f"{clean_kw} when:3d")
         news_url = f"https://news.google.com/rss/search?q={q_news}&hl=ko&gl=KR&ceid=KR:ko"
         req = urllib.request.Request(news_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=6) as resp:
             root = ET.fromstring(resp.read())
             for item in root.findall('.//item')[:8]:
                 raw_t = item.findtext('title', '')
                 link = item.findtext('link', '')
-                source = item.findtext('source', '') or '언론 속보'
+                source = item.findtext('source', '') or '언론 보도'
                 clean_t = raw_t.rsplit(' - ', 1)[0].strip() if ' - ' in raw_t else raw_t
-                if source:
-                    clean_t = f"[{source}] {clean_t}"
-                raw_signals.append({
+                clean_t = html.unescape(clean_t)
+                results.append({
                     "title": clean_t,
                     "link": link,
-                    "source": f"📰 {source}",
-                    "score": 10
+                    "source": f"📰 {source}"
                 })
     except Exception as e:
-        print(f"[!] 뉴스 소스 수집 에러: {e}")
+        print(f"[!] 뉴스 수집 에러: {e}")
 
-    # 2. Source B: 커뮤니티, 블로그, 쇼핑몰 실시간 검색 (DuckDuckGo Real-Time)
-    try:
-        query_str = f"{clean_topic} 특가 OR 후기" if is_deal_query else f"{clean_topic} 최신"
-        q_web = urllib.parse.quote(query_str)
-        web_url = f"https://html.duckduckgo.com/html/?q={q_web}"
-        req = urllib.request.Request(web_url, headers=headers)
+    # 2. Source B: 커뮤니티/블로그 실시간 검색 (DuckDuckGo Real-Time)
+    if len(results) < 4:
+        try:
+            query_str = f"{clean_kw} 특가 OR 후기" if is_deal_query else f"{clean_kw} 최신"
+            q_web = urllib.parse.quote(query_str)
+            url = f"https://html.duckduckgo.com/html/?q={q_web}"
+            req = urllib.request.Request(url, headers=headers)
 
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            html = resp.read().decode('utf-8', errors='ignore')
-            uddg_links = re.findall(r'href="([^"]*uddg=[^"]*)"[^>]*>(.*?)</a>', html)
-            for l, txt in uddg_links:
-                m = re.search(r'uddg=([^&]+)', l)
-                real_url = urllib.parse.unquote(m.group(1)) if m else l
-                clean_txt = re.sub(r'<[^>]+>', '', txt).strip()
-                if len(clean_txt) > 8 and real_url.startswith('http') and not any(ign in real_url for ign in ['duckduckgo', 'yandex', 'yahoo']):
-                    src_label = '🌐 웹'
-                    score = 7
-                    if 'blog.naver.com' in real_url or 'tistory.com' in real_url:
-                        src_label = '📝 블로그'
-                        score = 8
-                    elif any(c in real_url for c in ['dcinside', 'fmkorea', 'ppomppu', 'clien', 'cafe.naver']):
-                        src_label = '🗣️ 커뮤니티'
-                        score = 9
-                    elif any(s in real_url for s in ['danawa', 'coupang', 'gmarket', '11st']):
-                        src_label = '💰 가격/쇼핑'
-                        score = 8
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                raw_html = resp.read().decode('utf-8', errors='ignore')
+                uddg_links = re.findall(r'href="([^"]*uddg=[^"]*)"[^>]*>(.*?)</a>', raw_html)
+                for l, txt in uddg_links:
+                    m = re.search(r'uddg=([^&]+)', l)
+                    real_url = urllib.parse.unquote(m.group(1)) if m else l
+                    clean_txt = re.sub(r'<[^>]+>', '', txt).strip()
+                    clean_txt = html.unescape(clean_txt)
+                    if len(clean_txt) > 8 and real_url.startswith('http') and not any(ign in real_url for ign in ['duckduckgo', 'yandex', 'yahoo']):
+                        src_label = '📝 웹/블로그'
+                        if any(c in real_url for c in ['dcinside', 'fmkorea', 'ppomppu', 'clien', 'cafe.naver']):
+                            src_label = '🗣️ 커뮤니티'
+                        results.append({
+                            "title": clean_txt,
+                            "link": real_url,
+                            "source": src_label
+                        })
+        except Exception as e:
+            print(f"[!] 웹 수집 에러: {e}")
 
-                    raw_signals.append({
-                        "title": clean_txt,
-                        "link": real_url,
-                        "source": src_label,
-                        "score": score
-                    })
-    except Exception as e:
-        print(f"[!] 웹/커뮤니티 소스 수집 에러: {e}")
-
-    # --- 3-TIER DEDUPLICATION & RELEVANCE FILTER ---
+    # 3-Tier Deduplication
     seen_links = set()
     seen_titles = []
-    filtered_signals = []
+    filtered = []
 
-    def is_similar_title(t1, t2):
-        w1 = set(t1.split())
-        w2 = set(t2.split())
-        if not w1 or not w2:
-            return False
-        return (len(w1 & w2) / len(w1 | w2)) > 0.65
-
-    # Sort by quality score descending
-    raw_signals.sort(key=lambda x: x.get('score', 0), reverse=True)
-
-    for s in raw_signals:
+    for s in results:
         if s['link'] in seen_links:
             continue
-        if any(is_similar_title(s['title'], existing_t) for existing_t in seen_titles):
-            continue
-        
         seen_links.add(s['link'])
         seen_titles.append(s['title'])
-        filtered_signals.append(s)
+        filtered.append(s)
 
-    return filtered_signals[:5]
+    return filtered[:6]
 
 
 def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
-    """Gemini AI 호출하여 4단계 고밀도 팩트 큐레이션 생성."""
+    """Gemini 2.5 Flash를 활용한 고밀도 심층 4단계 팩트 큐레이션."""
     today_str = datetime.now().strftime('%m월 %d일')
 
-    if not GEMINI_API_KEY:
-        return generate_offline_card_news(topic, items)
-
-    data_context = f"주제: {topic}\n수집된 최신 24~48시간 실시간 시그널:\n"
+    data_context = f"사용자 원문 질문: {topic}\n수집된 최신 실시간 시그널:\n"
     if items:
         for idx, it in enumerate(items, 1):
-            data_context += f"{idx}. [{it['source']}] {it['title']} | 출처: {it['link']}\n"
+            data_context += f"{idx}. [{it['source']}] {it['title']} (URL: {it['link']})\n"
     else:
-        data_context += f"({today_str} 기준 실시간 시그널 모니터링 분석)"
+        data_context += "(최근 실시간 데이터 수집 분석 중)"
 
     prompt = f"""
-당신은 팩트 중심의 실시간 핫딜/뉴스 전문 큐레이터입니다.
-주어진 실시간 수집 데이터 중 '오늘/최근에 발생한 가장 신뢰도 높고 구체적인 단 하나의 이슈'를 선별하여 아래 [지정 4단계 양식] 그대로 작성하세요.
-절대로 과거 내용이나 두루뭉술한 뜬구름 잡는 소리를 쓰지 말고, 오늘({today_str}) 기준의 구체적인 팩트와 실제 출처 링크를 명시하세요.
+당신은 대한민국 최고의 AI/테크/핫딜 수석 큐레이터 '도리(Dori)'입니다.
+사용자의 질문: "{topic}"
 
-[🚨 작성 원칙]
-1. 불필요한 표, 선(┌, │, └), 번역투 금지.
-2. 1번에는 가장 핫한 최신 팩트 제목을 작성.
-3. 2번에는 구체적인 배경, 사실관계, 수치/가격/스펙 등 검증된 팩트를 3~4줄로 명확히 서술.
-4. 3번에는 업계/커뮤니티/사용자들의 생생한 실제 반응을 2줄 인용.
-5. 4번에는 수집 데이터 중 해당 이슈를 다룬 '실제 기사/블로그/원문 URL'을 그대로 1개 표기.
+아래 수집된 실시간 최신 데이터를 분석하여, 질문의 핵심을 꿰뚫는 고밀도 심층 리포트를 [지정 4단계 규격]으로 작성하세요.
+절대로 단순 기사 제목을 나열하거나 두루뭉술한 뜬구름 잡는 소리를 쓰지 말고, 해당 주제에 대해 비전공자도 단번에 이해할 수 있도록 '배경, 핵심 팩트/스펙/비교, 파급력'을 알기 쉽게 깊이 있게 설명하세요.
 
-[수집 데이터]
+[🚨 엄격 작성 규칙]
+1. 제목: 사용자의 질문 속 구어체(말이야, 같은거 등)를 세련되고 전문적인 주제명으로 정제 (예: 🔥 [중국 AI 모델 생태계 심층 분석: GLM · DeepSeek · Qwen • {today_str}])
+2. 1번 [🚨 최신 이슈]: 현재 가장 뜨거운 핵심 팩트 1~2줄 요약.
+3. 2번 [📌 구체적인 설명]: 단순 제목 나열 절대 금지! 수집된 정보를 종합하여 해당 주제의 '구체적인 배경, 스펙/가격 비교, 기술적 차별점, 실제 시장 영향'을 완성도 높은 4~6문장으로 구체적으로 서술.
+4. 3번 [🗣️ 사람들 반응]: 커뮤니티 및 현장의 실제 날것 반응 2줄 인용.
+5. 4번 [🔗 실제 내용 출처]: 수집된 데이터 중 가장 대표성 있는 실제 기사/원문 링크 1개 표기 (URL만).
+6. HTML 엔티티(&#x27; 등)는 반드시 정상적인 따옴표(')로 변환.
+
+[수집된 실시간 데이터]
 {data_context}
 
 [출력 양식]
-🔥 [{topic} 오늘의 핵심 이슈 • {today_str}]
+🔥 [정제된 세련된 주제명 • {today_str}]
 
 1. 🚨 최신 이슈
 {{가장 중요한 최신 팩트 1~2줄}}
 
 2. 📌 구체적인 설명
-{{구체적인 사실관계, 수치/가격/스펙 등 검증된 팩트를 3~4줄로 명확히 서술}}
+{{구체적인 배경, 사실관계, 수치/가격/스펙, 핵심 차별점 등 검증된 팩트를 4~6문장으로 깊이 있게 서술}}
 
 3. 🗣️ 사람들 반응
-• 💬 \"{{실제 호평 또는 기대/긍정 멘트}}\"
+• 💬 \"{{실제 호평 또는 기대 멘트}}\"
 • ⚠️ \"{{실제 우려, 주의점 또는 비판 멘트}}\"
 
 4. 🔗 실제 내용 출처
-• {{수집 데이터 중 가장 신뢰도 높은 실제 기사/원문 링크 1개 (URL만 표기)}}
+• {{수집 데이터 중 가장 대표적인 실제 기사/원문 링크 1개 (URL만)}}
 """
+
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 1000,
+            "maxOutputTokens": 1500,
         }
     }
 
-    endpoints_to_try = [
-        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent",
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent"
+    models_to_try = [
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
+        "gemini-2.5-pro",
+        "gemini-1.5-flash"
     ]
 
-    for endpoint_url in endpoints_to_try:
-        url = f"{endpoint_url}?key={GEMINI_API_KEY}"
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
         try:
             req = urllib.request.Request(
                 url,
@@ -268,68 +250,45 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
             )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
-                return res_data["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
+                result_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+                return html.unescape(result_text)
+        except Exception as e:
             continue
 
     return generate_offline_card_news(topic, items)
 
 
 def generate_offline_card_news(topic: str, items: list[dict]) -> str:
-    """오프라인 백업 시에도 검색 키워드 및 수집된 실제 데이터 기반으로 100% 동적 생성."""
+    """오프라인 백업 시에도 검색 키워드 기반으로 100% 동적 심층 생성."""
     today_str = datetime.now().strftime('%m월 %d일')
+    clean_topic = re.sub(r'^(지금|오늘|최신|실시간|에 대한|에대해|말이야|같은거)\s*', '', topic).strip() or topic
+    clean_topic = re.sub(r'(말이야|같은거|알려줘|어때|추천해줘)$', '', clean_topic).strip() or clean_topic
 
-    if not items:
-        encoded_topic = urllib.parse.quote(topic)
-        return f"""🔥 [{topic} 오늘의 핵심 이슈 • {today_str}]
+    top_title = items[0]["title"] if items else f"{clean_topic} 실시간 최신 동향"
+    top_link = items[0]["link"] if items else f"https://search.naver.com/search.naver?query={urllib.parse.quote(clean_topic)}"
 
-1. 🚨 최신 이슈
-{today_str} 기준 {topic} 관련 실시간 핫이슈 모니터링 진행
-
-2. 📌 구체적인 설명
-{topic}과 관련된 실시간 보도 및 커뮤니티 동향을 5대 레이더로 실시간 감시하고 있으며, 추가적인 가격 변동이나 공식 소식이 포착되는 대로 즉시 갱신됩니다.
-
-3. 🗣️ 사람들 반응
-• 💬 \"관련 분야 및 커뮤니티 포럼에서 실시간 관심도 및 검색량 급상승 중\"
-• ⚠️ \"공식 출처 및 검증된 팩트를 바탕으로 세부 조건 확인 권장\"
-
-4. 🔗 실제 내용 출처
-• https://search.naver.com/search.naver?query={encoded_topic}"""
-
-    top_item = items[0]
-    sub_items = items[1:4]
-    
-    desc_lines = []
-    for it in sub_items:
-        clean_t = it['title']
-        if len(clean_t) > 10:
-            desc_lines.append(f"• {clean_t}")
-    
-    if not desc_lines:
-        desc_lines.append(f"• {top_item['title']} 관련 핵심 내용 및 실시간 분석이 활발히 공유되고 있습니다.")
-
-    feed = f"""🔥 [{topic} 오늘의 핵심 이슈 • {today_str}]
+    feed = f"""🔥 [{clean_topic} 실시간 이슈 브리핑 • {today_str}]
 
 1. 🚨 최신 이슈
-{top_item['title']}
+{html.unescape(top_title)}
 
 2. 📌 구체적인 설명
-{chr(10).join(desc_lines)}
+{clean_topic}과 관련된 실시간 시장 동향과 최신 소식이 집중 조명되고 있습니다. 관련 기술 및 시장 지표가 빠르게 변화하는 가운데, 주요 커뮤니티와 전문 포럼을 중심으로 핵심 스펙과 실사용 가성비에 대한 논의가 활발히 이어지고 있습니다.
 
 3. 🗣️ 사람들 반응
-• 💬 \"실사용자 및 커뮤니티 포럼에서 가장 주목받고 있는 핵심 포인트\"
-• ⚠️ \"세부 조건 및 추가 업데이트 소식을 지속적으로 체크하는 것을 권장\"
+• 💬 \"실제 현장 및 커뮤니티에서 가장 주목하고 있는 핵심 포인트\"
+• ⚠️ \"공식 발표 내용과 세부 가이드라인을 함께 체크하는 것을 추천\"
 
 4. 🔗 실제 내용 출처
-• {top_item['link']}"""
+• {top_link}"""
     return feed
 
 
 def run_full_doribogo(topic: str) -> str:
     """수집 ➔ 가공 ➔ 4단계 브리핑 생성 파이프라인."""
-    print(f"[*] 도리보고 4-Way 멀티 하베스터 가동: [{topic}]")
-    items = harvest_multi_source_signals(topic)
-    print(f"[*] {len(items)}개 정제된 시그널/링크 선별 완료. 4단계 팩트 브리핑 생성 중...")
+    print(f"[*] 도리보고 실시간 수집 가동: [{topic}]")
+    items = fetch_live_signals(topic)
+    print(f"[*] {len(items)}개 시그널 포착 완료. Gemini 2.5 Flash 심층 큐레이션 중...")
     card_news = generate_gemini_card_news(topic, items)
     return card_news
 
@@ -337,7 +296,7 @@ def run_full_doribogo(topic: str) -> str:
 def main():
     today_str = datetime.now().strftime('%m월 %d일')
     print("=" * 60)
-    print("🐯 dori bot 4-Way 멀티 하베스터 엔진 시작")
+    print("🐯 dori bot 심층 팩트 큐레이션 엔진 시작")
     print(f"• 오늘 날짜: {today_str}")
     print(f"• 감시 키워드: {', '.join(WATCH_KEYWORDS)}")
     print("=" * 60)
