@@ -200,10 +200,10 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
 [🚨 엄격 작성 규칙]
 1. 제목: 사용자의 질문 속 구어체(말이야, 같은거 등)를 세련되고 전문적인 주제명으로 정제 (예: 🔥 [중국 AI 모델 생태계 심층 분석: GLM · DeepSeek · Qwen • {today_str}])
 2. 1번 [🚨 최신 이슈]: 현재 가장 뜨거운 핵심 팩트 1~2줄 요약.
-3. 2번 [📌 구체적인 설명]: 단순 제목 나열 절대 금지! 수집된 정보를 종합하여 해당 주제의 '구체적인 배경, 스펙/가격 비교, 기술적 차별점, 실제 시장 영향'을 완성도 높은 4~6문장으로 구체적으로 서술.
+3. 2번 [📌 구체적인 설명]: 단순 제목 나열 절대 금지! 수집된 정보를 종합하여 해당 주제의 '구체적인 배경, 사실관계, 수치/가격/스펙, 핵심 차별점 등'을 4~6문장으로 구체적이고 깊이 있게 서술.
 4. 3번 [🗣️ 사람들 반응]: 커뮤니티 및 현장의 실제 날것 반응 2줄 인용.
-5. 4번 [🔗 실제 내용 출처]: 수집된 데이터 중 가장 대표성 있는 실제 기사/원문 링크 1개 표기 (URL만).
-6. HTML 엔티티(&#x27; 등)는 반드시 정상적인 따옴표(')로 변환.
+5. 4번 [🔗 실제 내용 출처]: 수집 데이터 중 가장 대표적인 실제 기사/원문 링크 1개 표기 (URL만).
+6. 인사말이나 서론 없이 곧바로 '🔥 [' 로 시작할 것.
 
 [수집된 실시간 데이터]
 {data_context}
@@ -229,7 +229,8 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 1500,
+            "maxOutputTokens": 8192,
+            "thinkingConfig": { "thinkingBudget": 0 }
         }
     }
 
@@ -251,12 +252,14 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
                 result_text = res_data["candidates"][0]["content"]["parts"][0]["text"]
-                return html.unescape(result_text)
+                clean_res = html.unescape(result_text)
+                if "🔥 [" in clean_res:
+                    clean_res = clean_res[clean_res.find("🔥 ["):]
+                return clean_res.strip()
         except Exception as e:
             continue
 
     return generate_offline_card_news(topic, items)
-
 
 def generate_offline_card_news(topic: str, items: list[dict]) -> str:
     """오프라인 백업 시에도 검색 키워드 기반으로 100% 동적 심층 생성."""
