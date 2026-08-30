@@ -10,23 +10,23 @@ description: HWP/HWPX 문서를 반자동화(내용은 자동, 구조는 승인 
 
 ## 1. 실제 호출 방법 (GJC가 꼭 이대로 실행)
 
-엔진 경로: `/home/hodol/.gjc-free/hwp/hwp_bridge.py` (python3, 의존성 설치 완료)
+엔진 경로: `~/.gjc-free/hwp/hwp_bridge.py` 또는 `chatgpt-workspace/hwp-automation/hwp_bridge.py` (python3, 의존성 설치 완료)
 
 ```bash
 # 1) 읽기/분석 (문단+표 구조를 JSON으로)
-python3 /home/hodol/.gjc-free/hwp/hwp_bridge.py --read   문서.hwpx
+python3 hwp_bridge.py --read   문서.hwpx
 
 # 2) 표 목록 확인 (tableIndex / 행·열 / 첫 행 프리뷰)
-python3 /home/hodol/.gjc-free/hwp/hwp_bridge.py --tables 문서.hwpx
+python3 hwp_bridge.py --tables 문서.hwpx
 
 # 3) 내용 채우기 (표 셀·일반 문단의 {{키}} 를 값으로, 구조 불변)
-python3 /home/hodol/.gjc-free/hwp/hwp_bridge.py --fill   문서.hwpx '{"user_name":"홍길동","date":"2026-08-26"}'
+python3 hwp_bridge.py --fill   문서.hwpx '{"user_name":"홍길동","date":"2026-08-26"}'
 
 # 4) 구조 변경 계획 (dry-run, 승인 근거 transcript 출력 — 아직 실행 안 함)
-python3 /home/hodol/.gjc-free/hwp/hwp_bridge.py --plan   문서.hwpx '[{"op":"merge_table","table_index":0}]'
+python3 hwp_bridge.py --plan   문서.hwpx '[{"op":"merge_table","table_index":0}]'
 
 # 5) 구조 변경 실행 (승인 후에만)
-python3 /home/hodol/.gjc-free/hwp/hwp_bridge.py --apply  문서.hwpx '[{"op":"insert_row_by_clone","table_index":0,"ref_row":1,"count":1}]'
+python3 hwp_bridge.py --apply  문서.hwpx '[{"op":"insert_row_by_clone","table_index":0,"ref_row":1,"count":1}]'
 ```
 
 - 출력은 항상 `<원본>_수정본.hwpx`로 생성된다. **원본은 절대 안 바뀐다.**

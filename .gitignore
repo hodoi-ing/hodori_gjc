@@ -5,6 +5,7 @@
 # 1. API 키, 비밀 토큰, 인증서 (절대 유출 금지)
 *.env
 *.env.*
+!.env.example
 *.key
 *.pem
 *.pfx
