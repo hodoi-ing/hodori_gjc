@@ -37,51 +37,65 @@ ChatGPT와 호도리가 함께 아이디어를 만들고, 작은 실험으로 �
 이 폴더 안에는 ChatGPT와 함께 설계·검증 중인 프로젝트와 실험 기록을 관리합니다.
 
 <details open>
-<summary>🐯 도리보고 (v4.5.0) — 디스코드 hodori bot 정식 가동 중!</summary>
+<summary>🐯 도리보고 (v6.0.0) — CHOI 스타일 스레드 큐레이션 & 디스코드 hodori bot 가동 중!</summary>
 
-### 🐯 도리보고 (Doribogo `v4.5.0`) & 디스코드 챗봇 (`hodori bot`)
+### 🐯 도리보고 (Doribogo `v6.0.0`) & 디스코드 챗봇 (`hodori bot`)
 
-**위치:** `chatgpt-workspace/doribogo/`  
-**디스코드 봇:** `hodori bot` (실시간 질의응답 `!도리 [키워드]` 활성화)
+**위치:** `chatgpt-workspace/doribogo/` & `doribogo_bot.py`  
+**디스코드 봇:** `hodori bot` (자연어 대화 `도리야 [질문]` 및 명령어 `!도리 [키워드]` 활성화)
 
 > 요리보고 저리보고, **도리보고!**
 
-어떤 키워드든(IT 모델, 주식, 특가할인, 브랜드명 등) 던지면 **1차 기업 공식 SNS(X·스레드) 원문을 먼저 확보하고 2차 언론 보도로 교차 검증**하여, 디스코드 채팅창에 즉시 **4단계 팩트 큐레이션 리포트**를 회신해 주는 전천후 리서치 엔진입니다.
+Threads 30만 팔로워 AI 인플루언서 **`CHOI (@choi.openai)`**의 **[4단 연쇄 스레드 큐레이션 포맷]**과 **[5대 다각도 이슈 레이더]**를 전면 이식하여, 어떤 키워드든 공식 발표의 허점을 찌르는 날카로운 팩트 분석과 실무 수치 환산 리포트를 디스코드로 실시간 전송합니다.
 
 #### 🔀 5대 핵심 아키텍처
 
-1. **2단계 순차 교차검증 파이프라인 (2-Stage Verification)**:
-   - **1차 팩트 (Primary Ground Truth)**: 기업/개발사 공식 X·스레드 계정(@Zai_org, @deepseek_ai 등)의 최신 모델 공개 및 스펙 원문 우선 확보.
-   - **2차 교차검증 (Cross-Verification)**: 주요 IT 언론사 속보 및 커뮤니티(레딧, 펨코, 디시) 벤치마크 대조.
-2. **디스코드 실시간 챗봇 (`hodori bot`)**:
-   - `!도리 [키워드]` ➔ 3초 만에 4단계 팩트 브리핑(이슈, 구체적 설명, 사람들 반응, 실제 원문 출처) 즉시 답장.
-   - 24/7 GitHub Actions 무인 클라우드 크론(30분 주기) 동시 지원.
-3. **5대 다각도 시그널 매트릭스 (`universal_harvester.py`)**:
-   - 단일 키워드 입력 시 5개 스레드가 `[📱공식SNS · 💰특가대란 · ⚡게릴라사건 · 🛠️스펙출시 · 🗣️여론꿀팁]`을 동시 타격.
-4. **최근 24~48시간(`when:2d`) 엄격 최신성 필터**:
-   - 구버전이나 과거 기사를 원천 차단하고, 발생 시점 기준 가장 신선한 팩트 1위 배치.
-5. **Not-AI 한국어 인간 문체 엔진 & 4단계 팩트 규격**:
-   - AI 번역투를 원천 배제하고 실사용자 시각에서 완성도 높은 팩트 리포트 자동 생성.
-#### 🚀 빠른 실행 (CLI)
+1. **5대 다각도 이슈 탐지 레이더 (5-Way Issue Radar)**:
+   - **📱 1) 공식 SNS & 릴리즈 속보**: 기업 공식 X·스레드 계정 및 엔지니어 개인 피드 최우선 스캔.
+   - **🔍 2) 숨은 각주 & 쿼터/비용 정책 Diffing**: 쿼터 축소, 가격 인상, 사용량 공유, 토큰 누수 버그 포착.
+   - **🛠️ 3) 오픈소스 & 가중치/보안**: 모델 가중치 수정, MoE, LoRA, JailbreakBench 벤치마크 추적.
+   - **⚡ 4) 에이전트 표준 & 인프라**: WebMCP, MCP, 브라우저 자동화 등 새로운 웹/개발 표준 추적.
+   - **💰 5) 실시간 특가 & 역대가**: 캠핑/하드웨어 역대가, 대란, 타임딜 실시간 탐지.
+2. **CHOI (@choi.openai) 4단 연쇄 스레드 큐레이션 포맷**:
+   - **📌 [메인 본문]**: 1행 역발상 훅 + 2~3줄 요약 + 반전 대조 (*"표현은 A이지만 결국 B인 셈"*)
+   - **💬 [댓글 1 | 기술 메커니즘 딥다이브]**: 아키텍처, 버그 지점, 가중치/로직 변경 등 기술 원인 서술
+   - **💬 [댓글 2 | 체감 수치 환산 & 실무 영향]**: 100 기준 직관적 정수 환산 + 실무 대응 전략
+   - **💬 [댓글 3 | 공식 출처]**: 1차 원문 검증 링크 (알고리즘 페널티 회피형)
+3. **디스코드 실시간 양방향 챗봇 (`hodori bot`)**:
+   - **자연어 호출**: `도리야 [질문]`, `호도리야 [질문]`, `@hodori bot [질문]`
+   - **명령어 호출**: `!도리 [키워드]`, `!ai [질문]`
+   - **24/7 백그라운드 데몬**: 무중단 실시간 질의응답 및 자동 레이더 모니터링.
+4. **최근 24~72시간(`when:7d`) 엄격 최신성 & 3-Tier Jaccard 유사도 필터**:
+   - 과거 구버전 기사를 원천 차단하고 중복 기사 100% 압축.
+5. **멀티 모델 Gemini 2.5 Flash 엔진 & 오프라인 폴백 탑재**.
 
-```bash
-# 1. 주식/경제 분야 실시간 핫이슈 카드뉴스
-python3 chatgpt-workspace/doribogo/universal_harvester.py "금융투자소득세"
+#### ⚙️ 디스코드 봇 설정 및 환경 변수 (`.env`)
 
-# 2. 브랜드 공식 SNS & 특가 대란 탐색
-python3 chatgpt-workspace/doribogo/universal_harvester.py "다이슨"
-
-# 3. 테크/오픈소스 게릴라 핫이슈 탐색
-python3 chatgpt-workspace/doribogo/universal_harvester.py "OpenCode Go"
-
-# 4. GJC / omp 단축 스킬 실행
-/doribogo 아이폰 16 할인
+```env
+DISCORD_BOT_TOKEN="디스코드_봇_토큰"
+DISCORD_CHANNEL_ID="자동_알림_채널_ID"
+DISCORD_WEBHOOK_URL="디스코드_웹후크_URL"
+TELEGRAM_BOT_TOKEN="텔레그램_봇_토큰"
+TELEGRAM_CHAT_ID="텔레그램_채팅_ID"
+GEMINI_API_KEY="구글_제미나이_API_키"
 ```
 
-상세 설계와 기술 문서는 [`chatgpt-workspace/doribogo/README.md`](chatgpt-workspace/doribogo/README.md), [`SEARCH_ARCHITECTURE.md`](chatgpt-workspace/doribogo/SEARCH_ARCHITECTURE.md), [`CHANGELOG.md`](chatgpt-workspace/doribogo/CHANGELOG.md)에서 관리합니다.
+#### 🚀 봇 실행 및 백그라운드 가동
+
+```bash
+# 1. 디스코드 대화형 비서 실행 (포그라운드)
+python3 discord_interactive_bot.py
+
+# 2. 백그라운드 무중단 데몬 가동 (nohup)
+nohup python3 discord_interactive_bot.py > /tmp/discord_bot.log 2>&1 &
+
+# 3. 단일 키워드 CLI 즉시 리서치
+python3 -c "import doribogo_bot; print(doribogo_bot.run_full_doribogo('Claude Code 사용량'))"
+```
+
+상세 설계와 기술 문서는 [`chatgpt-workspace/doribogo/README.md`](chatgpt-workspace/doribogo/README.md)에서 관리합니다.
 
 </details>
-
 <details>
 <summary>📄 HWP 자동화 — 자세히 보기</summary>
 
