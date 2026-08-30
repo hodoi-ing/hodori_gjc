@@ -1,12 +1,10 @@
-"""🐯 dori bot - 실시간 디스코드 인터랙티브 챗봇 (discord.py)
+"""🐯 dori bot - 실시간 디스코드 통합 비서 봇 (discord.py)
 
-💡 명령어 안내:
-• !도리 [키워드] : 어떤 키워드든 5대 레이더로 실시간 리서치 ➔ 4단계 팩트 브리핑 즉시 출력
-  예) !도리 백컨트리 360
-  예) !도리 RTX 5090 특가
-  예) !도리 제미나이 2.5
-• !도리 도움말 : 사용법 안내
-• 30분마다 감시 키워드 자동 브리핑도 함께 발송
+💡 지원 명령어:
+• !도리 [키워드] : 5대 레이더 실시간 리서치 ➔ 4단계 팩트 브리핑 출력
+• !ai [질문/코드/번역] : Gemini AI 자유 대화, 코딩, 번역, 문서 작성 비서
+• !도움말 : 전체 명령어 안내
+• 30분 주기 정기 자동 브리핑
 """
 
 import os
@@ -14,13 +12,15 @@ import sys
 import time
 import json
 import asyncio
+import urllib.request
+import html
 from datetime import datetime, timezone
 
 try:
     import discord
     from discord.ext import commands, tasks
 except ImportError:
-    print("[!] discord.py가 설치되지 않았습니다. 'pip install discord.py'를 실행해주세요.")
+    print("[!] discord.py가 설치되지 않았습니다.")
     sys.exit(1)
 
 try:
@@ -33,6 +33,7 @@ import doribogo_bot
 
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
 DISCORD_CHANNEL_ID = os.environ.get("DISCORD_CHANNEL_ID", "").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GEMINI_", "").strip() or "AIzaSyAXiI8a1MVwfegW5cz7MxfLbGKdv8amz-4"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -45,43 +46,25 @@ WATCH_KEYWORDS = ["백컨트리 360", "캠핑 텐트 특가"]
 @bot.event
 async def on_ready():
     print("=" * 60)
-    print(f"🐯 dori bot 온라인 로그인 완료: {bot.user.name} ({bot.user.id})")
-    print(f"• 명령어 접두사: '!' (예: !도리 백컨트리 360)")
+    print(f"🐯 hodori bot 통합 비서 가동 완료: {bot.user.name} ({bot.user.id})")
+    print("• 지원 명령어: !도리 [키워드], !ai [질문], !도움말")
     print("=" * 60)
     if not auto_radar_loop.is_running():
         auto_radar_loop.start()
 
 
+# --- 기능 1: 도리보고 실시간 팩트 큐레이션 (!도리) ---
 @bot.command(name="도리", aliases=["dori", "doribogo"])
 async def dori_command(ctx, *, keyword: str = ""):
-    """실시간 키워드 질의응답 명령어."""
+    """실시간 5대 레이더 4단계 팩트 큐레이션."""
     keyword = keyword.strip()
-    if not keyword:
-        await ctx.send("🐯 검색할 키워드를 입력해주세요!\n예) `!도리 백컨트리 360`\n예) `!도리 아이폰 16 특가`")
+    if not keyword or keyword in ["도움말", "help", "?"]:
+        await send_help(ctx)
         return
 
-    if keyword in ["도움말", "help", "?"]:
-        embed = discord.Embed(
-            title="🐯 dori bot 사용 안내",
-            description=(
-                "**실시간 4단계 팩트 큐레이션 챗봇**\n\n"
-                "• `!도리 [키워드]` : 5대 레이더 실시간 스캔 & 4단계 팩트 브리핑 생성\n"
-                "• 예시: `!도리 백컨트리 360`\n"
-                "• 예시: `!도리 RTX 5090 가격`\n"
-                "• 예시: `!도리 텐트 대란`\n\n"
-                "💡 30분마다 주요 키워드 자동 브리핑도 함께 제공됩니다."
-            ),
-            color=0x3B82F6
-        )
-        embed.set_footer(text="dori bot • 실시간 레이더")
-        await ctx.send(embed=embed)
-        return
-
-    # 대기 메시지 전송
-    loading_msg = await ctx.send(f"🔍 **[{keyword}]** 5대 레이더 실시간 수집 및 AI 분석 중... 잠시만 기다려주세요! ⏳")
+    loading_msg = await ctx.send(f"🔍 **[{keyword}]** 5대 레이더 실시간 수집 및 팩트 분석 중... ⏳")
 
     try:
-        # 비동기 백그라운드 리서치 실행
         loop = asyncio.get_event_loop()
         card_news = await loop.run_in_executor(None, doribogo_bot.run_full_doribogo, keyword)
         today_str = datetime.now().strftime("%m월 %d일")
@@ -91,18 +74,109 @@ async def dori_command(ctx, *, keyword: str = ""):
             description=card_news,
             color=0xFF6B00
         )
-        embed.set_footer(text=f"dori bot • {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        embed.set_footer(text=f"hodori bot • {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
         await loading_msg.delete()
         await ctx.send(embed=embed)
 
     except Exception as e:
-        await loading_msg.edit(content=f"❌ **[{keyword}]** 분석 중 오류가 발생했습니다: {e}")
+        await loading_msg.edit(content=f"❌ **[{keyword}]** 분석 중 오류 발생: {e}")
+
+
+# --- 기능 2: Gemini AI 자유 대화 & 코딩/번역 비서 (!ai, !질문) ---
+@bot.command(name="ai", aliases=["질문", "q", "ask"])
+async def ai_chat_command(ctx, *, query: str = ""):
+    """Gemini 2.5 Flash 기반 자유 대화, 코딩, 번역, 문서 작성 비서."""
+    query = query.strip()
+    if not query:
+        await ctx.send("🐯 질문이나 요청할 내용을 입력해주세요!\n예) `!ai 파이썬 비동기 처리 코드 예제 짜줘`\n예) `!ai 이 영어 문장 자연스럽게 번역해줘`")
+        return
+
+    loading_msg = await ctx.send(f"🧠 **[{query[:30]}...]** Gemini AI 분석 중... ⏳")
+
+    try:
+        loop = asyncio.get_event_loop()
+        answer = await loop.run_in_executor(None, call_gemini_general, query)
+
+        # 디스코드 2000자 제한 대응 분할 전송
+        await loading_msg.delete()
+        
+        if len(answer) <= 2000:
+            embed = discord.Embed(
+                title=f"💡 [AI 답변] {query[:40]}",
+                description=answer,
+                color=0x3B82F6
+            )
+            embed.set_footer(text="hodori bot • Powered by Gemini 2.5 Flash")
+            await ctx.send(embed=embed)
+        else:
+            # 2000자 초과 시 텍스트로 분할 발송
+            chunks = [answer[i:i+1900] for i in range(0, len(answer), 1900)]
+            for idx, ch in enumerate(chunks, 1):
+                await ctx.send(f"**[답변 {idx}/{len(chunks)}]**\n{ch}")
+
+    except Exception as e:
+        await loading_msg.edit(content=f"❌ AI 답변 생성 중 오류 발생: {e}")
+
+
+def call_gemini_general(prompt: str) -> str:
+    """Gemini 2.5 Flash 범용 질의응답."""
+    system_instruction = (
+        "당신은 친절하고 유능하며 명쾌한 AI 수석 비서 '호도리봇(hodori bot)'입니다. "
+        "사용자의 질문에 대해 핵심을 찌르는 친절하고 전문적인 한국어로 답변하세요. "
+        "코딩 질문에는 실행 가능한 깔끔한 코드 블록과 핵심 해설을 제공하세요."
+    )
+    
+    payload = {
+        "contents": [
+            {"role": "user", "parts": [{"text": f"[시스템 지침: {system_instruction}]\n\n사용자 질문: {prompt}"}]}
+        ],
+        "generationConfig": {
+            "temperature": 0.5,
+            "maxOutputTokens": 8192,
+            "thinkingConfig": {"thinkingBudget": 0}
+        }
+    }
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        res_data = json.loads(resp.read().decode("utf-8"))
+        return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+
+@bot.command(name="도움말", aliases=["help", "명령어"])
+async def help_command(ctx):
+    await send_help(ctx)
+
+
+async def send_help(ctx):
+    embed = discord.Embed(
+        title="🐯 hodori bot 명령어 안내",
+        description=(
+            "**1. 실시간 팩트 큐레이션 (!도리)**\n"
+            "• `!도리 [키워드]` : 5대 레이더 실시간 리서치 + 4단계 팩트 리포트 출력\n"
+            "• 예시: `!도리 중국 AI 이슈` | `!도리 백컨트리 360`\n\n"
+            "**2. AI 자유 질문 & 코딩/번역 비서 (!ai)**\n"
+            "• `!ai [질문]` 또는 `!질문 [질문]` : Gemini AI 범용 질의응답\n"
+            "• 예시: `!ai 파이썬 디스코드 봇 예제 코드 짜줘`\n"
+            "• 예시: `!ai 이 비즈니스 메일 영어로 정중하게 번역해줘`\n\n"
+            "**3. 24시간 클라우드 자동 알림**\n"
+            "• 30분마다 주요 감시 키워드 브리핑이 자동 전송됩니다."
+        ),
+        color=0x10B981
+    )
+    embed.set_footer(text="hodori bot • 만능 개인 비서")
+    await ctx.send(embed=embed)
 
 
 @tasks.loop(minutes=30)
 async def auto_radar_loop():
-    """30분 주기 정기 자동 브리핑 발송."""
+    """30분 주기 정기 자동 브리핑."""
     if not DISCORD_CHANNEL_ID:
         return
 
@@ -121,7 +195,7 @@ async def auto_radar_loop():
                 description=card,
                 color=0xFF6B00
             )
-            embed.set_footer(text=f"dori bot • {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            embed.set_footer(text=f"hodori bot • {datetime.now().strftime('%Y-%m-%d %H:%M')}")
             await channel.send(embed=embed)
             await asyncio.sleep(2)
 
@@ -136,11 +210,7 @@ async def before_loop():
 
 def main():
     if not DISCORD_BOT_TOKEN:
-        print("=" * 60)
-        print("❌ DISCORD_BOT_TOKEN이 설정되지 않았습니다!")
-        print("👉 디스코드 개발자 포털(discord.com/developers/applications)에서")
-        print("   봇 토큰을 발급받아 .env에 입력해주세요.")
-        print("=" * 60)
+        print("❌ DISCORD_BOT_TOKEN이 설정되지 않았습니다.")
         sys.exit(1)
 
     bot.run(DISCORD_BOT_TOKEN)
