@@ -1,10 +1,13 @@
-"""🐯 dori bot - 실시간 디스코드 통합 비서 봇 (discord.py)
+"""🐯 hodori bot - 자연어 대화형 디스코드 비서 (discord.py)
 
-💡 지원 명령어:
-• !도리 [키워드] : 5대 레이더 실시간 리서치 ➔ 4단계 팩트 브리핑 출력
-• !ai [질문/코드/번역] : Gemini AI 자유 대화, 코딩, 번역, 문서 작성 비서
-• !도움말 : 전체 명령어 안내
-• 30분 주기 정기 자동 브리핑
+💡 자연어 호출 방식:
+• "도리야 [검색어/질문]" ➔ 봇이 알아서 리서치인지 일반 질문인지 판단해 즉시 답변!
+  예) 도리야 백컨트리 360 특가 찾아줘
+  예) 도리야 중국 AI 모델 최신 소식 정리해줘
+  예) 도리야 파이썬으로 엑셀 다루는 코드 짜줘
+  예) 도리야 오늘 저녁 메뉴 추천해줘
+• @hodori bot 멘션 후 질문도 가능!
+• 기존 명령어(!도리, !ai)도 100% 호환 지원
 """
 
 import os
@@ -14,6 +17,7 @@ import json
 import asyncio
 import urllib.request
 import html
+import re
 from datetime import datetime, timezone
 
 try:
@@ -46,24 +50,66 @@ WATCH_KEYWORDS = ["백컨트리 360", "캠핑 텐트 특가"]
 @bot.event
 async def on_ready():
     print("=" * 60)
-    print(f"🐯 hodori bot 통합 비서 가동 완료: {bot.user.name} ({bot.user.id})")
-    print("• 지원 명령어: !도리 [키워드], !ai [질문], !도움말")
+    print(f"🐯 hodori bot 자연어 대화 비서 가동: {bot.user.name} ({bot.user.id})")
+    print("• 자연어 호출: '도리야 [질문]', '호도리야 [질문]', @봇 멘션")
+    print("• 명령어 접두사: !도리, !ai, !도움말")
     print("=" * 60)
     if not auto_radar_loop.is_running():
         auto_radar_loop.start()
 
 
-# --- 기능 1: 도리보고 실시간 팩트 큐레이션 (!도리) ---
-@bot.command(name="도리", aliases=["dori", "doribogo"])
-async def dori_command(ctx, *, keyword: str = ""):
-    """실시간 5대 레이더 4단계 팩트 큐레이션."""
-    keyword = keyword.strip()
-    if not keyword or keyword in ["도움말", "help", "?"]:
-        await send_help(ctx)
+# --- 자연어 메시지 리스너 ("도리야 ~", "호도리야 ~", @멘션) ---
+@bot.event
+async def on_message(message):
+    # 봇 자신의 메시지는 무시
+    if message.author == bot.user:
         return
 
-    loading_msg = await ctx.send(f"🔍 **[{keyword}]** 5대 레이더 실시간 수집 및 팩트 분석 중... ⏳")
+    content = message.content.strip()
+    is_triggered = False
+    cleaned_query = ""
 
+    # 1. "도리야", "호도리야", "도리", "호도리" 로 시작하는지 검사
+    pattern = r"^(도리야|호도리야|도리|호도리|dori)\s*[,~!\?]?\s*(.*)"
+    match = re.match(pattern, content, re.IGNORECASE)
+
+    if match:
+        is_triggered = True
+        cleaned_query = match.group(2).strip()
+    elif bot.user in message.mentions:
+        is_triggered = True
+        cleaned_query = re.sub(r"<@!?[0-9]+>", "", content).strip()
+
+    if is_triggered:
+        if not cleaned_query or cleaned_query in ["안녕", "ㅎㅇ", "하이", "도움말", "help"]:
+            await message.channel.send(
+                f"🐯 안녕하세요, {message.author.mention}님! 무엇을 도와드릴까요?\n\n"
+                "💡 **이렇게 말씀해 보세요:**\n"
+                "• `도리야 백컨트리 360 특가 찾아줘` ➔ 5대 레이더 실시간 리서치\n"
+                "• `도리야 중국 AI 모델 최신 이슈 알려줘` ➔ 4단계 팩트 브리핑\n"
+                "• `도리야 파이썬 비동기 코드 예제 짜줘` ➔ 코딩 & AI 비서 답변\n"
+                "• `도리야 오늘 저녁 메뉴 추천해줘` ➔ 자유 AI 대화"
+            )
+            return
+
+        # 지능형 라우팅: 리서치/핫딜/뉴스 질문인지, 일반 대화/코딩인지 판단
+        is_research_intent = any(w in cleaned_query for w in [
+            "특가", "가격", "텐트", "할인", "대란", "구매", "장비", "이슈", "뉴스", "속보", "최신", "시세", "알아봐", "찾아봐", "정리해줘", "소식"
+        ])
+
+        if is_research_intent:
+            await handle_doribogo_research(message.channel, cleaned_query)
+        else:
+            await handle_ai_chat(message.channel, cleaned_query)
+        return
+
+    # 기존 명령어(!도리, !ai 등) 처리
+    await bot.process_commands(message)
+
+
+async def handle_doribogo_research(channel, keyword):
+    """도리보고 5대 레이더 4단계 팩트 리포트 처리."""
+    loading_msg = await channel.send(f"🔍 **[{keyword}]** 5대 레이더 실시간 수집 및 팩트 분석 중... ⏳")
     try:
         loop = asyncio.get_event_loop()
         card_news = await loop.run_in_executor(None, doribogo_bot.run_full_doribogo, keyword)
@@ -75,32 +121,20 @@ async def dori_command(ctx, *, keyword: str = ""):
             color=0xFF6B00
         )
         embed.set_footer(text=f"hodori bot • {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-
         await loading_msg.delete()
-        await ctx.send(embed=embed)
-
+        await channel.send(embed=embed)
     except Exception as e:
         await loading_msg.edit(content=f"❌ **[{keyword}]** 분석 중 오류 발생: {e}")
 
 
-# --- 기능 2: Gemini AI 자유 대화 & 코딩/번역 비서 (!ai, !질문) ---
-@bot.command(name="ai", aliases=["질문", "q", "ask"])
-async def ai_chat_command(ctx, *, query: str = ""):
-    """Gemini 2.5 Flash 기반 자유 대화, 코딩, 번역, 문서 작성 비서."""
-    query = query.strip()
-    if not query:
-        await ctx.send("🐯 질문이나 요청할 내용을 입력해주세요!\n예) `!ai 파이썬 비동기 처리 코드 예제 짜줘`\n예) `!ai 이 영어 문장 자연스럽게 번역해줘`")
-        return
-
-    loading_msg = await ctx.send(f"🧠 **[{query[:30]}...]** Gemini AI 분석 중... ⏳")
-
+async def handle_ai_chat(channel, query):
+    """Gemini 2.5 Flash 자유 대화 및 코딩/번역 비서 처리."""
+    loading_msg = await channel.send(f"🧠 **[{query[:30]}...]** 답변 작성 중... ⏳")
     try:
         loop = asyncio.get_event_loop()
         answer = await loop.run_in_executor(None, call_gemini_general, query)
-
-        # 디스코드 2000자 제한 대응 분할 전송
         await loading_msg.delete()
-        
+
         if len(answer) <= 2000:
             embed = discord.Embed(
                 title=f"💡 [AI 답변] {query[:40]}",
@@ -108,15 +142,13 @@ async def ai_chat_command(ctx, *, query: str = ""):
                 color=0x3B82F6
             )
             embed.set_footer(text="hodori bot • Powered by Gemini 2.5 Flash")
-            await ctx.send(embed=embed)
+            await channel.send(embed=embed)
         else:
-            # 2000자 초과 시 텍스트로 분할 발송
             chunks = [answer[i:i+1900] for i in range(0, len(answer), 1900)]
             for idx, ch in enumerate(chunks, 1):
-                await ctx.send(f"**[답변 {idx}/{len(chunks)}]**\n{ch}")
-
+                await channel.send(f"**[답변 {idx}/{len(chunks)}]**\n{ch}")
     except Exception as e:
-        await loading_msg.edit(content=f"❌ AI 답변 생성 중 오류 발생: {e}")
+        await loading_msg.edit(content=f"❌ 답변 생성 중 오류 발생: {e}")
 
 
 def call_gemini_general(prompt: str) -> str:
@@ -149,24 +181,37 @@ def call_gemini_general(prompt: str) -> str:
         return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
 
+# --- 기존 명령어 호환 (!도리, !ai, !도움말) ---
+@bot.command(name="도리", aliases=["dori", "doribogo"])
+async def dori_cmd(ctx, *, keyword: str = ""):
+    if not keyword:
+        await ctx.send("🐯 검색할 키워드를 입력해주세요! (예: `!도리 백컨트리 360` 또는 `도리야 백컨트리 360`)")
+        return
+    await handle_doribogo_research(ctx.channel, keyword)
+
+
+@bot.command(name="ai", aliases=["질문", "q", "ask"])
+async def ai_cmd(ctx, *, query: str = ""):
+    if not query:
+        await ctx.send("🐯 질문을 입력해주세요! (예: `!ai 파이썬 코드 짜줘` 또는 `도리야 파이썬 코드 짜줘`)")
+        return
+    await handle_ai_chat(ctx.channel, query)
+
+
 @bot.command(name="도움말", aliases=["help", "명령어"])
-async def help_command(ctx):
-    await send_help(ctx)
-
-
-async def send_help(ctx):
+async def help_cmd(ctx):
     embed = discord.Embed(
-        title="🐯 hodori bot 명령어 안내",
+        title="🐯 hodori bot 사용 안내",
         description=(
-            "**1. 실시간 팩트 큐레이션 (!도리)**\n"
-            "• `!도리 [키워드]` : 5대 레이더 실시간 리서치 + 4단계 팩트 리포트 출력\n"
-            "• 예시: `!도리 중국 AI 이슈` | `!도리 백컨트리 360`\n\n"
-            "**2. AI 자유 질문 & 코딩/번역 비서 (!ai)**\n"
-            "• `!ai [질문]` 또는 `!질문 [질문]` : Gemini AI 범용 질의응답\n"
-            "• 예시: `!ai 파이썬 디스코드 봇 예제 코드 짜줘`\n"
-            "• 예시: `!ai 이 비즈니스 메일 영어로 정중하게 번역해줘`\n\n"
-            "**3. 24시간 클라우드 자동 알림**\n"
-            "• 30분마다 주요 감시 키워드 브리핑이 자동 전송됩니다."
+            "**💡 자연어 대화 (느낌표 없이 편하게 부르기)**\n"
+            "• `도리야 [검색어/질문]`\n"
+            "• `호도리야 [검색어/질문]`\n"
+            "• `@hodori bot [질문]`\n\n"
+            "**📌 명령어 방식**\n"
+            "• `!도리 [키워드]` : 5대 레이더 실시간 리서치 + 4단계 팩트 리포트\n"
+            "• `!ai [질문]` : Gemini AI 자유 대화, 코딩, 번역 비서\n\n"
+            "**⏰ 30분 정기 브리핑**\n"
+            "• 컴퓨터를 꺼도 30분마다 주요 감시 핫딜/뉴스가 자동 발송됩니다."
         ),
         color=0x10B981
     )
