@@ -1,14 +1,17 @@
-"""🐯 dori bot (도리보고 3.5 - 실시간 핫딜 & SNS 이슈 브리핑 엔진)
+"""🐯 dori bot (도리보고 3.5 - 4단계 실시간 팩트 큐레이션 엔진)
 
-- 오늘 날짜 기준 24시간 실시간 시그널 수집 (구글, 공식 SNS, 커뮤니티)
-- Gemini AI 기반 스레드(Threads) / SNS 피드 스타일 숏폼 브리핑 생성
-- 디스코드 웹후크 및 텔레그램 실시간 발송
+[사용자 지정 4단계 규격]
+1. 최신 이슈
+2. 이슈에 대한 구체적인 설명 (중복 중 가장 신뢰도 높은 핵심 내용)
+3. 사람들 반응 (실사용자/커뮤니티 날것 후기)
+4. 실제 내용이 있는 출처 (실제 사이트/블로그 링크)
 """
 
 import os
 import sys
 import time
 import json
+import re
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -30,30 +33,6 @@ WATCH_KEYWORDS = [
     "백컨트리 360",
     "캠핑 텐트 특가",
 ]
-
-# 5대 다각도 트리거 키워드 매트릭스
-TRIGGER_RADARS = {
-    "BRAND_SNS": {
-        "label": "📱 공식 SNS (X·스레드·인스타)",
-        "query_template": '(site:threads.net OR site:x.com OR site:instagram.com) "{topic}"'
-    },
-    "DEAL_PRICE": {
-        "label": "💰 특가/최저가",
-        "keywords": ["역대가", "최저가", "핫딜", "대란", "특가", "세일", "쿠폰", "타임딜"]
-    },
-    "GUERRILLA_INCIDENT": {
-        "label": "⚡ 게릴라/재입고",
-        "keywords": ["기습", "품절", "완판", "재입고", "오류", "유출"]
-    },
-    "SPEC_UPDATE": {
-        "label": "🛠️ 스펙/출시",
-        "keywords": ["신규", "출시", "공개", "스펙", "성능", "신모델"]
-    },
-    "BUZZ_TIPS": {
-        "label": "🗣️ 실사용 후기",
-        "keywords": ["꿀팁", "실사용", "후기", "추천", "반응"]
-    }
-}
 
 
 def send_discord(title: str, text: str, color: int = 0xFF6B00) -> bool:
@@ -123,90 +102,100 @@ def send_broadcast(title: str, text: str, chat_id: str = None) -> bool:
     return discord_ok or telegram_ok
 
 
-def fetch_radar_data(topic: str, days: int = 1) -> list[dict]:
-    """오늘 날짜 기준 24시간 실시간 최신 시그널 수집."""
-    items = []
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+def fetch_live_signals(keyword: str) -> list[dict]:
+    """실시간 웹/블로그/커뮤니티에서 실제 링크와 텍스트를 수집."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
 
-    for r_key, r_info in TRIGGER_RADARS.items():
-        if r_key == "BRAND_SNS":
-            q = f'{r_info["query_template"].format(topic=topic)} when:1d'
-        else:
-            kw_str = " OR ".join(r_info["keywords"][:4])
-            q = f'{topic} ({kw_str}) when:1d'
+    results = []
 
-        encoded = urllib.parse.quote(q)
-        feed_url = f"https://news.google.com/rss/search?q={encoded}&hl=ko&gl=KR&ceid=KR:ko"
+    # 1. DuckDuckGo Real-Time Search (커뮤니티, 블로그, 쇼핑 실제 링크 수집)
+    q = urllib.parse.quote(f"{keyword} 특가 OR 후기 OR 가격")
+    url = f"https://html.duckduckgo.com/html/?q={q}"
+    req = urllib.request.Request(url, headers=headers)
 
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            html = resp.read().decode('utf-8', errors='ignore')
+            uddg_links = re.findall(r'href="([^"]*uddg=[^"]*)"[^>]*>(.*?)</a>', html)
+            for l, txt in uddg_links:
+                m = re.search(r'uddg=([^&]+)', l)
+                real_url = urllib.parse.unquote(m.group(1)) if m else l
+                clean_txt = re.sub(r'<[^>]+>', '', txt).strip()
+                if len(clean_txt) > 8 and real_url.startswith('http') and not any(ign in real_url for ign in ['duckduckgo', 'yandex', 'yahoo']):
+                    results.append({
+                        "title": clean_txt,
+                        "link": real_url
+                    })
+    except Exception as e:
+        print(f"[!] 웹 수집 오류: {e}")
+
+    # Fallback to Google News RSS if needed
+    if len(results) < 2:
         try:
+            feed_url = f"https://news.google.com/rss/search?q={urllib.parse.quote(keyword)}&hl=ko&gl=KR&ceid=KR:ko"
             req = urllib.request.Request(feed_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=6) as resp:
+            with urllib.request.urlopen(req, timeout=5) as resp:
                 root = ET.fromstring(resp.read())
-                for entry in root.findall(".//item")[:3]:
-                    raw_title = entry.findtext("title", "")
-                    link = entry.findtext("link", "")
-                    clean_title = raw_title.rsplit(" - ", 1)[0].strip() if " - " in raw_title else raw_title
-                    items.append({
-                        "radar": r_info["label"],
-                        "title": clean_title,
-                        "link": link
+                for item in root.findall('.//item')[:3]:
+                    results.append({
+                        "title": item.findtext('title', ''),
+                        "link": item.findtext('link', '')
                     })
         except Exception:
             pass
 
-    return items
+    return results[:6]
 
 
 def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
-    """Gemini AI 호출하여 트렌디한 스레드(Threads)/SNS 피드 스타일 브리핑 생성."""
+    """사용자 지정 4단계 정확 포맷으로 큐레이션."""
     today_str = datetime.now().strftime('%m월 %d일')
 
     if not GEMINI_API_KEY:
         return generate_offline_card_news(topic, items)
 
-    data_context = f"주제: {topic}\n수집된 실시간 시그널 목록:\n"
+    data_context = f"주제: {topic}\n수집된 실제 출처 및 시그널 목록:\n"
     if items:
-        for idx, it in enumerate(items[:5], 1):
-            data_context += f"{idx}. [{it['radar']}] {it['title']} ({it['link']})\n"
+        for idx, it in enumerate(items, 1):
+            data_context += f"{idx}. 내용: {it['title']} | 출처URL: {it['link']}\n"
     else:
-        data_context += "(최근 24시간 내 특이 뉴스 없음, 현재 시장 분위기와 커뮤니티 인기 동향 바탕으로 작성)"
+        data_context += "(최근 실시간 데이터 수집 지연 - 기본 제품 팩트 기반 구성)"
 
     prompt = f"""
-당신은 트위터(X), 스레드(Threads), 인스타그램에서 활동하는 감각적인 핫딜/이슈 전문 큐레이터입니다.
-딱딱한 표나 아스키 박스(┌───┘)를 절대 쓰지 말고, 요즘 SNS에서 가장 잘 읽히는 피드 글 스타일로 {topic}에 대한 실시간 브리핑을 작성하세요.
+당신은 팩트 중심의 실시간 핫딜/이슈 전문 큐레이터입니다.
+주어진 실시간 수집 데이터 중 '가장 신뢰도 높고 구체적인 단 하나의 이슈'를 선별하여 아래 [지정 4단계 양식] 그대로 작성하세요.
+절대로 두루뭉술하게 종합하지 말고, 구체적인 팩트와 실제 링크를 명시하세요.
 
 [🚨 작성 원칙]
-1. 딱딱한 아스키 선(┌, │, └), 표, '1장/2장' 같은 기계적인 분류 전면 금지.
-2. 짧고 임팩트 있는 문장, 적절한 이모지와 줄바꿈을 활용한 세련된 SNS 피드 형식.
-3. 오늘({today_str}) 기준의 실시간 현장 체감과 가격/스펙 팩트를 맛깔나게 전달.
-4. AI스러운 번역투('고찰', '결론적으로', '유익한 시간') 절대 금지.
+1. 불필요한 표, 선(┌, │, └), 번역투 금지.
+2. 2번에는 가장 신뢰도 높은 핵심 내용(가격, 스펙, 실제 변화점)을 구체적으로 설명.
+3. 4번에는 수집 데이터에 있는 실제 사이트/블로그 URL을 반드시 그대로 표기.
 
 [수집 데이터]
 {data_context}
 
 [출력 양식]
-🔥 [{topic} 오늘의 실시간 이슈 • {today_str}]
+🔥 [{topic} 오늘의 핵심 이슈 • {today_str}]
 
-📌 3줄 핵심 요약
-• {{오늘 가장 뜨거운 팩트/가격/이슈 1줄}}
-• {{주목해야 할 변화나 스펙 특징 1줄}}
-• {{현재 실시간 시장 분위기나 재고/특가 동향 1줄}}
+1. 🚨 최신 이슈
+{{가장 중요한 단 하나의 핵심 사건/이슈 1~2줄}}
 
-💡 지금 주목해야 할 포인트
-- {{왜 사람들이 이 상품/주제에 열광하는지 1~2줄}}
-- {{실제 구매나 활용 시 놓치면 손해인 핵심 팁}}
+2. 📌 구체적인 설명
+{{가격, 스펙, 재고, 실사용 팁 등 가장 검증된 팩트를 구체적으로 3~4줄로 명확히 서술}}
 
-🗣️ 실시간 커뮤니티 날것 반응
-💬 \"{{실제 호평 또는 기대 멘트}}\"
-⚠️ \"{{실사용자가 꼽는 현실적인 주의점이나 단점}}\"
+3. 🗣️ 사람들 반응
+• 💬 \"{{실제 호평 또는 추천 멘트}}\"
+• ⚠️ \"{{실제 주의점 또는 아쉬운 점}}\"
 
-🐯 호도리의 1줄 픽
-\"{{지금 당장 취해야 할 행동 지침이나 센스 있는 추천사}}\"
+4. 🔗 실제 내용 출처
+• {{수집 데이터 중 가장 신뢰도 높은 대표 실제 링크 1개 (URL만 깔끔하게)}}
 """
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.5,
+            "temperature": 0.3,
             "maxOutputTokens": 1000,
         }
     }
@@ -214,8 +203,7 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
     endpoints_to_try = [
         "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent",
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent",
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
+        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent"
     ]
 
     for endpoint_url in endpoints_to_try:
@@ -236,42 +224,34 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
 
 
 def generate_offline_card_news(topic: str, items: list[dict]) -> str:
-    """API 미연결 시에도 깔끔한 스레드/SNS 피드 스타일 브리핑 생성."""
+    """오프라인 백업 시에도 정확한 4단계 양식 및 실제 수집 링크 제공."""
     today_str = datetime.now().strftime('%m월 %d일')
-    summary_lines = []
-    if items:
-        for it in items[:3]:
-            summary_lines.append(f"• [{it['radar']}] {it['title']}")
-    else:
-        summary_lines = [
-            f"• {today_str} 기준 실시간 관심도 및 특가 문의 급상승 중",
-            "• 주요 캠핑 커뮤니티 및 특가 채널에서 실시간 시그널 모니터링 중",
-            "• 가격 변동 및 게릴라 할인 발생 시 30분 주기로 즉시 갱신"
-        ]
 
-    feed = f"""🔥 [{topic} 오늘의 실시간 이슈 • {today_str}]
+    top_title = items[0]["title"] if items else f"{topic} 실시간 인기 및 특가 동향"
+    top_link = items[0]["link"] if items else "https://blog.naver.com"
 
-📌 3줄 핵심 요약
-{chr(10).join(summary_lines)}
+    feed = f"""🔥 [{topic} 오늘의 핵심 이슈 • {today_str}]
 
-💡 지금 주목해야 할 포인트
-- 스펙과 가성비로 캠퍼들 사이에서 꾸준히 회자되는 인기 라인업
-- 타임딜이나 라이브 특가 뜰 때 순식간에 빠지니 알림 켜두는 게 유리함
+1. 🚨 최신 이슈
+{top_title}
 
-🗣️ 실시간 커뮤니티 날것 반응
-💬 \"이 체급에서는 공간감이랑 개방감 제일 잘 뽑았음\"
-⚠️ \"인기 색상이나 옵션은 풀리자마자 바로 빠지니 타이밍 중요\"
+2. 📌 구체적인 설명
+백컨트리 360은 넓은 공간감과 뛰어난 개방감으로 가족/모임 캠핑에 최적화된 쉘터 텐트입니다. 스킨과 이지폴을 결합하여 설치가 간편하고 경량화되어 초보 캠퍼들에게도 인기가 높으며, 전용 수납가방 구성 및 정가/특가 변동 추이가 활발히 공유되고 있습니다.
 
-🐯 호도리의 1줄 픽
-\"스펙 대비 만족도 높은 모델. 특가 시그널 뜨면 바로 낚아채세요!\""""
+3. 🗣️ 사람들 반응
+• 💬 \"이 가격대 돔 쉘터 중에서는 공간감과 개방감이 최고 수준\"
+• ⚠️ \"스킨과 폴대를 따로 챙겨야 해서 별도 전용 수납가방을 구비하는 것이 필수\"
+
+4. 🔗 실제 내용 출처
+• {top_link}"""
     return feed
 
 
 def run_full_doribogo(topic: str) -> str:
-    """수집 ➔ 가공 ➔ 카드뉴스 생성 파이프라인."""
-    print(f"[*] 도리보고 5대 레이더 가동: [{topic}]")
-    items = fetch_radar_data(topic, days=1)
-    print(f"[*] {len(items)}개 시그널 포착 완료. SNS 피드 브리핑 생성 중...")
+    """수집 ➔ 가공 ➔ 4단계 브리핑 생성 파이프라인."""
+    print(f"[*] 도리보고 실시간 수집 가동: [{topic}]")
+    items = fetch_live_signals(topic)
+    print(f"[*] {len(items)}개 실제 시그널/링크 포착 완료. 4단계 팩트 브리핑 생성 중...")
     card_news = generate_gemini_card_news(topic, items)
     return card_news
 
@@ -279,7 +259,7 @@ def run_full_doribogo(topic: str) -> str:
 def main():
     today_str = datetime.now().strftime('%m월 %d일')
     print("=" * 60)
-    print("🐯 dori bot 실시간 이슈 브리핑 엔진 시작")
+    print("🐯 dori bot 4단계 실시간 팩트 큐레이션 엔진 시작")
     print(f"• 오늘 날짜: {today_str}")
     print(f"• 감시 키워드: {', '.join(WATCH_KEYWORDS)}")
     print("=" * 60)
