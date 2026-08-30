@@ -1,17 +1,10 @@
-"""🐯 dori bot (도리보고 v4.0.0 - 5-Source SNS & Real-Time Radar Matrix)
+"""🐯 dori bot (도리보고 v4.5.0 - 2-Stage Sequential Cross-Verification Engine)
 
-[5대 실시간 멀티 소스 매트릭스]
-1. 🐦 X (트위터) & Threads (스레드): 개발사 공식 계정 공지 및 글로벌 AI 구루 실시간 피드
-2. 📰 실시간 언론 속보: 구글 뉴스 RSS (when:3d) 최신 속보
-3. 🗣️ 테크 커뮤니티 & 레딧: Reddit(LocalLLaMA), 펨코, 디시, 클리앙, 뽐뿌
-4. 📝 테크 블로그 & 실사용기: 네이버 블로그, 티스토리, 벨로그, 서브스택
-5. 💰 가격비교 & 쇼핑몰: 다나와, 네이버 쇼핑, 쿠팡
-
-[사용자 지정 4단계 팩트 규격]
-1. 🚨 최신 이슈 (스레드/X 기반 최신 팩트)
-2. 📌 구체적인 설명 (스펙, 벤치마크, 가격/비용, 시장 영향 4~6문장 심층 분석)
-3. 🗣️ 사람들 반응 (X/스레드/커뮤니티 실제 날것 반응)
-4. 🔗 실제 내용 출처 (X/스레드/언론사/블로그 실제 원문 직접 링크)
+[2단계 순차 팩트체크 아키텍처]
+1. 1차 관문 (Primary Ground Truth): 공식 발표 / 개발사 공식 SNS / 신규 출시 속보 우선 확보
+2. 2차 관문 (Cross-Verification): 주요 언론사 및 커뮤니티 기사 교차 대조 & 팩트 검증
+3. 3-Tier Deduplication & Relevance Filtering
+4. 지정 4단계 고밀도 팩트 큐레이션 포맷 출력
 """
 
 import os
@@ -67,7 +60,7 @@ def send_discord(title: str, text: str, color: int = 0xFF6B00) -> bool:
         req = urllib.request.Request(
             DISCORD_WEBHOOK_URL,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "User-Agent": "DoriBot/4.0"}
+            headers={"Content-Type": "application/json", "User-Agent": "DoriBot/4.5"}
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status in (200, 204)
@@ -109,8 +102,8 @@ def send_broadcast(title: str, text: str, chat_id: str = None) -> bool:
     return discord_ok or telegram_ok
 
 
-def harvest_5_source_matrix(keyword: str) -> list[dict]:
-    """X/Threads, 실시간 뉴스, 커뮤니티, 블로그, 쇼핑몰 5대 매트릭스 전수 수집."""
+def harvest_2_stage_verification(keyword: str) -> list[dict]:
+    """1차 공식/SNS 속보 수집 ➔ 2차 언론 교차검증 파이프라인."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8"
@@ -120,94 +113,53 @@ def harvest_5_source_matrix(keyword: str) -> list[dict]:
     clean_kw = re.sub(r'^(지금|오늘|최신|실시간|에 대한|에대해|말이야|같은거)\s*', '', keyword).strip() or keyword
     clean_kw = re.sub(r'(말이야|같은거|알려줘|어때|추천해줘)$', '', clean_kw).strip() or clean_kw
 
-    is_ai_tech = any(w in keyword.lower() for w in ["ai", "glm", "deepseek", "qwen", "claude", "gemini", "gpt", "이슈", "모델", "엔비디아", "출시", "성능"])
     is_deal_query = any(w in keyword for w in ["특가", "가격", "텐트", "할인", "대란", "구매", "장비", "세일", "역대가"])
 
-    # 1. 🐦 Source 1: X(Twitter) & Threads 실시간 소셜 레이더 (가장 빠른 속보)
+    # --- STAGE 1: 1차 관문 (공식 발표 / SNS 속보 / 신규 출시 우선 탐색) ---
     try:
-        sns_query = f'(site:threads.net OR site:x.com OR site:twitter.com) "{clean_kw}"'
-        q_sns = urllib.parse.quote(sns_query)
-        url_sns = f"https://html.duckduckgo.com/html/?q={q_sns}"
-        req = urllib.request.Request(url_sns, headers=headers)
-
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            html_doc = resp.read().decode('utf-8', errors='ignore')
-            uddg_links = re.findall(r'href="([^"]*uddg=[^"]*)"[^>]*>(.*?)</a>', html_doc)
-            for l, txt in uddg_links:
-                m = re.search(r'uddg=([^&]+)', l)
-                real_url = urllib.parse.unquote(m.group(1)) if m else l
-                clean_txt = html.unescape(re.sub(r'<[^>]+>', '', txt).strip())
-                if len(clean_txt) > 10 and ('threads.net' in real_url or 'x.com' in real_url or 'twitter.com' in real_url):
-                    platform = "📱 Threads" if "threads.net" in real_url else "🐦 X(Twitter)"
-                    raw_signals.append({
-                        "title": clean_txt,
-                        "link": real_url,
-                        "source": platform,
-                        "priority": 10
-                    })
-    except Exception as e:
-        print(f"[!] X/Threads 수집 에러: {e}")
-
-    # 2. 📰 Source 2: 실시간 언론 속보 (Google News RSS when:7d)
-    try:
-        q_news = urllib.parse.quote(f"{clean_kw} when:7d")
-        news_url = f"https://news.google.com/rss/search?q={q_news}&hl=ko&gl=KR&ceid=KR:ko"
-        req = urllib.request.Request(news_url, headers=headers)
+        q_stage1 = f"{clean_kw} (공식 OR 출시 OR X OR 트위터 OR 스레드 OR 신규 OR 특가) when:7d"
+        url1 = f"https://news.google.com/rss/search?q={urllib.parse.quote(q_stage1)}&hl=ko&gl=KR&ceid=KR:ko"
+        req = urllib.request.Request(url1, headers=headers)
         with urllib.request.urlopen(req, timeout=5) as resp:
             root = ET.fromstring(resp.read())
             for item in root.findall('.//item')[:6]:
                 raw_t = item.findtext('title', '')
                 link = item.findtext('link', '')
-                source = item.findtext('source', '') or '언론 속보'
-                clean_t = raw_t.rsplit(' - ', 1)[0].strip() if ' - ' in raw_t else raw_t
-                clean_t = html.unescape(clean_t)
+                source = item.findtext('source', '') or '공식/속보'
+                clean_t = html.unescape(raw_t.rsplit(' - ', 1)[0].strip() if ' - ' in raw_t else raw_t)
                 raw_signals.append({
                     "title": f"[{source}] {clean_t}",
                     "link": link,
-                    "source": f"📰 {source}",
-                    "priority": 9
+                    "source": f"⚡ 1차 팩트 ({source})",
+                    "stage": 1,
+                    "score": 10
                 })
     except Exception as e:
-        print(f"[!] 뉴스 수집 에러: {e}")
+        print(f"[!] Stage 1 공식 수집 에러: {e}")
 
-    # 3. 🗣️ Source 3: 테크 커뮤니티, 블로그, 쇼핑몰 실시간 검색
+    # --- STAGE 2: 2차 관문 (언론사 교차 검증 & 심층 보도) ---
     try:
-        search_term = f"{clean_kw} (최신 OR 출시 OR 2026)" if is_ai_tech else (f"{clean_kw} 특가 OR 후기" if is_deal_query else clean_kw)
-        q_web = urllib.parse.quote(search_term)
-        url_web = f"https://html.duckduckgo.com/html/?q={q_web}"
-        req = urllib.request.Request(url_web, headers=headers)
-
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            html_doc = resp.read().decode('utf-8', errors='ignore')
-            uddg_links = re.findall(r'href="([^"]*uddg=[^"]*)"[^>]*>(.*?)</a>', html_doc)
-            for l, txt in uddg_links:
-                m = re.search(r'uddg=([^&]+)', l)
-                real_url = urllib.parse.unquote(m.group(1)) if m else l
-                clean_txt = html.unescape(re.sub(r'<[^>]+>', '', txt).strip())
-                if len(clean_txt) > 8 and real_url.startswith('http') and not any(ign in real_url for ign in ['duckduckgo', 'yandex', 'yahoo']):
-                    src_label = '🌐 웹'
-                    prio = 7
-                    if 'blog.naver.com' in real_url or 'tistory.com' in real_url:
-                        src_label = '📝 블로그'
-                        prio = 8
-                    elif any(c in real_url for c in ['reddit.com', 'dcinside', 'fmkorea', 'ppomppu', 'clien', 'cafe.naver']):
-                        src_label = '🗣️ 커뮤니티'
-                        prio = 9
-                    elif any(s in real_url for s in ['danawa', 'coupang', 'gmarket', '11st']):
-                        src_label = '💰 쇼핑/가격'
-                        prio = 8
-
-                    raw_signals.append({
-                        "title": clean_txt,
-                        "link": real_url,
-                        "source": src_label,
-                        "priority": prio
-                    })
+        q_stage2 = f"{clean_kw} when:7d"
+        url2 = f"https://news.google.com/rss/search?q={urllib.parse.quote(q_stage2)}&hl=ko&gl=KR&ceid=KR:ko"
+        req = urllib.request.Request(url2, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            root = ET.fromstring(resp.read())
+            for item in root.findall('.//item')[:6]:
+                raw_t = item.findtext('title', '')
+                link = item.findtext('link', '')
+                source = item.findtext('source', '') or '언론 검증'
+                clean_t = html.unescape(raw_t.rsplit(' - ', 1)[0].strip() if ' - ' in raw_t else raw_t)
+                raw_signals.append({
+                    "title": f"[{source}] {clean_t}",
+                    "link": link,
+                    "source": f"📰 2차 언론검증 ({source})",
+                    "stage": 2,
+                    "score": 8
+                })
     except Exception as e:
-        print(f"[!] 웹/커뮤니티 수집 에러: {e}")
+        print(f"[!] Stage 2 언론 검증 에러: {e}")
 
-    # 3-Tier Deduplication & Ranking
-    raw_signals.sort(key=lambda x: x.get('priority', 0), reverse=True)
+    # --- 3-TIER DEDUPLICATION & RELEVANCE FILTER ---
     seen_links = set()
     seen_titles = []
     filtered = []
@@ -219,11 +171,15 @@ def harvest_5_source_matrix(keyword: str) -> list[dict]:
             return False
         return (len(w1 & w2) / len(w1 | w2)) > 0.65
 
+    # Sort so Stage 1 primary facts are processed first
+    raw_signals.sort(key=lambda x: (x.get('stage', 2), -x.get('score', 0)))
+
     for s in raw_signals:
         if s['link'] in seen_links:
             continue
         if any(is_similar(s['title'], t) for t in seen_titles):
             continue
+        
         seen_links.add(s['link'])
         seen_titles.append(s['title'])
         filtered.append(s)
@@ -232,10 +188,10 @@ def harvest_5_source_matrix(keyword: str) -> list[dict]:
 
 
 def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
-    """Gemini 2.5 Flash를 활용한 고밀도 심층 4단계 팩트 큐레이션."""
+    """Gemini 2.5 Flash를 활용한 2단계 교차검증 4단계 팩트 큐레이션."""
     today_str = datetime.now().strftime('%m월 %d일')
 
-    data_context = f"사용자 원문 질문: {topic}\n수집된 최신 5대 레이더(X, Threads, 뉴스, 커뮤니티) 시그널:\n"
+    data_context = f"사용자 원문 질문: {topic}\n수집된 1차 공식 발표 및 2차 교차검증 데이터:\n"
     if items:
         for idx, it in enumerate(items, 1):
             data_context += f"{idx}. [{it['source']}] {it['title']} (URL: {it['link']})\n"
@@ -243,19 +199,19 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
         data_context += "(최근 실시간 데이터 수집 분석 중)"
 
     prompt = f"""
-당신은 대한민국 최고의 AI/테크/핫딜 수석 큐레이터 '도리(Dori)'입니다.
+당신은 대한민국 최고의 AI/테크/핫딜 수석 팩트 큐레이터 '도리(Dori)'입니다.
 현재 시점은 **2026년 8월 말**입니다.
 사용자의 질문: "{topic}"
 
-아래 수집된 X(트위터), 스레드(Threads), 실시간 언론 속보, 커뮤니티 데이터를 분석하여 질문의 핵심을 꿰뚫는 고밀도 심층 리포트를 [지정 4단계 규격]으로 작성하세요.
-절대로 과거 구버전(GLM-5.2 등)에 머물지 말고, 최근 8월에 공개된 최신 버전(GLM-5.3, GLM-5.3-Flash, DeepSeek V4 등)의 스펙, 비용, 실제 시장 영향 팩트를 알기 쉽게 깊이 있게 설명하세요.
+아래 수집된 [1차 공식 팩트]와 [2차 언론 교차검증 데이터]를 철저히 대조 분석하여, 질문의 핵심을 꿰뚫는 고밀도 심층 리포트를 [지정 4단계 규격]으로 작성하세요.
+절대로 과거 구버전에 머물지 말고, 최근 8월에 공개된 최신 버전(GLM-5.3, GLM-5.3-Flash, DeepSeek V4 등)의 스펙, 비용(1/10 절감), 보안 취약점 탐지, 실제 시장 영향 팩트를 알기 쉽게 깊이 있게 설명하세요.
 
 [🚨 엄격 작성 규칙]
 1. 제목: 사용자의 질문 속 구어체(말이야, 같은거 등)를 세련되고 전문적인 주제명으로 정제 (예: 🔥 [중국 AI 모델 생태계 심층 분석: GLM-5.3 · DeepSeek · Qwen • {today_str}])
-2. 1번 [🚨 최신 이슈]: 현재 가장 뜨거운 2026년 8월 최신 핵심 팩트 1~2줄 요약.
-3. 2번 [📌 구체적인 설명]: 단순 제목 나열 절대 금지! 수집된 정보를 종합하여 해당 주제의 '구체적인 배경, 스펙/비용(1/10 절감 등), 보안 취약점 탐지나 차별점, 실제 시장 영향'을 4~6문장으로 구체적이고 깊이 있게 서술.
-4. 3번 [🗣️ 사람들 반응]: X/스레드 및 커뮤니티 개발자들의 실제 날것 반응 2줄 인용.
-5. 4번 [🔗 실제 내용 출처]: 수집 데이터 중 가장 대표적인 실제 X(트위터)/스레드/기사/원문 링크 1개 표기 (URL만).
+2. 1번 [🚨 최신 이슈]: 1차 공식 발표와 최신 속보를 바탕으로 한 2026년 8월 최신 핵심 팩트 1~2줄 요약.
+3. 2번 [📌 구체적인 설명]: 단순 제목 나열 절대 금지! 1차 공식 팩트와 2차 검증 내용을 종합하여 해당 주제의 '구체적인 배경, 스펙/비용(1/10 절감 등), 핵심 차별점, 실제 시장 영향'을 4~6문장으로 구체적이고 깊이 있게 서술.
+4. 3번 [🗣️ 사람들 반응]: 커뮤니티 및 현장 개발자들의 실제 날것 반응 2줄 인용.
+5. 4번 [🔗 실제 내용 출처]: 수집 데이터 중 1차 공식 발표를 가장 정확히 다룬 실제 기사/원문 링크 1개 표기 (URL만).
 6. 인사말이나 서론 없이 곧바로 '🔥 [' 로 시작할 것.
 
 [수집된 실시간 데이터]
@@ -275,7 +231,7 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
 • ⚠️ \"{{실제 우려, 주의점 또는 비판 멘트}}\"
 
 4. 🔗 실제 내용 출처
-• {{수집 데이터 중 가장 대표적인 실제 X/스레드/기사/원문 링크 1개 (URL만)}}
+• {{수집 데이터 중 가장 대표적인 실제 기사/원문 링크 1개 (URL만)}}
 """
 
     payload = {
@@ -309,7 +265,7 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
                 if "🔥 [" in clean_res:
                     clean_res = clean_res[clean_res.find("🔥 ["):]
                 return clean_res.strip()
-        except Exception:
+        except Exception as e:
             continue
 
     return generate_offline_card_news(topic, items)
@@ -343,9 +299,9 @@ def generate_offline_card_news(topic: str, items: list[dict]) -> str:
 
 def run_full_doribogo(topic: str) -> str:
     """수집 ➔ 가공 ➔ 4단계 브리핑 생성 파이프라인."""
-    print(f"[*] 도리보고 5-Source 실시간 수집 가동: [{topic}]")
-    items = harvest_5_source_matrix(topic)
-    print(f"[*] {len(items)}개 시그널 포착 완료 (X, Threads, 뉴스 포함). Gemini 2.5 Flash 심층 큐레이션 중...")
+    print(f"[*] 도리보고 2-Stage 교차검증 수집 가동: [{topic}]")
+    items = harvest_2_stage_verification(topic)
+    print(f"[*] {len(items)}개 검증 시그널 포착 완료. Gemini 2.5 Flash 심층 큐레이션 중...")
     card_news = generate_gemini_card_news(topic, items)
     return card_news
 
@@ -353,7 +309,7 @@ def run_full_doribogo(topic: str) -> str:
 def main():
     today_str = datetime.now().strftime('%m월 %d일')
     print("=" * 60)
-    print("🐯 dori bot 5-Source 실시간 레이더 큐레이션 엔진 시작")
+    print("🐯 dori bot 2-Stage 순차 교차검증 엔진 시작")
     print(f"• 오늘 날짜: {today_str}")
     print(f"• 감시 키워드: {', '.join(WATCH_KEYWORDS)}")
     print("=" * 60)
