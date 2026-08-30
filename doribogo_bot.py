@@ -1,11 +1,25 @@
-"""🐯 dori bot (도리보고 v5.0.0 - 4-Stage Thread Curation & 2-Stage Sequential Cross-Verification Engine)
+"""🐯 dori bot (도리보고 v6.0.0 - CHOI @choi.openai Style Thread Architecture & 5-Way Issue Radar)
 
-[CHOI (@choi.openai) 스레드 연쇄 큐레이션 & 2단계 교차검증 아키텍처]
-1. 1차 관문 (Primary Ground Truth): 공식 발표 / 개발사 공식 SNS / 신규 출시 속보 우선 확보
-2. 2차 관문 (Cross-Verification): 주요 언론사 및 커뮤니티 기사 교차 대조 & 팩트 검증
-3. 3-Tier Deduplication & Relevance Filtering
-4. [메인 본문 훅 + 댓글 1 기술 딥다이브 + 댓글 2 수치 환산·영향도 + 댓글 3 출처] 4단 분리 고밀도 큐레이션
+[핵심 아키텍처 및 철학]
+1. 5대 이슈 탐지 레이더 (5-Way Issue Radar)
+   - 📱 1) 공식 SNS & 빅테크 엔지니어 레이더 (X · Threads · 공식 발표)
+   - 🔍 2) 숨은 각주 & 정책 Diffing 레이더 (쿼터, 사용량 공유, 가격 인상/인하, 토큰 누수)
+   - 🛠️ 3) 오픈소스 & 가중치/보안 레이더 (Weights diffing, MoE, LoRA, JailbreakBench)
+   - ⚡ 4) 에이전트 인프라 & 웹 표준 레이더 (WebMCP, MCP, 브라우저 자동화)
+   - 💰 5) 실시간 특가 / 역대가 / 대란 레이더 (핫딜, 텐트, 하드웨어 장비)
+
+2. 3-Tier Deduplication & Recency Scoring
+   - 24~72시간 내 초신선도 가중치 부여
+   - Jaccard 유사도 0.65 이상 중복 기사 압축
+
+3. CHOI (@choi.openai) 4단 연쇄 스레드 큐레이션 포맷
+   - 📌 [메인 본문]: 1행 역발상 훅 + 2~3줄 핵심 요약 + 반전/공식 대조 ("표현은 A이지만 결국 B인 셈")
+   - 💬 [댓글 1 | 기술 메커니즘 딥다이브]: 아키텍처, 버그 지점, 가중치 수정 등 기술 원인 서술
+   - 💬 [댓글 2 | 체감 수치 환산 & 실무 영향]: 100 기준 직관적 정수 환산 + 실무 대응 전략
+   - 💬 [댓글 3 | 공식 출처]: 1차 원문 검증 링크 (알고리즘 페널티 회피형)
 """
+
+from __future__ import annotations
 
 import os
 import sys
@@ -16,6 +30,7 @@ import re
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 try:
@@ -30,9 +45,42 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GEMINI_", "").strip() or "AIzaSyAXiI8a1MVwfegW5cz7MxfLbGKdv8amz-4"
 
 WATCH_KEYWORDS = [
+    "Claude Code 사용량",
+    "OpenAI Codex",
+    "WebMCP",
+    "GLM-5.3",
     "백컨트리 360",
     "캠핑 텐트 특가",
 ]
+
+# 5대 다각도 이슈 레이더 매트릭스
+ISSUE_RADARS = {
+    "TECH_SNS": {
+        "label": "📱 공식 SNS & 릴리즈 속보",
+        "query_suffix": '(공식 OR 출시 OR X OR 트위터 OR 스레드 OR "release notes" OR changelog)',
+        "score_weight": 10
+    },
+    "FINE_PRINT": {
+        "label": "🔍 숨은 각주 & 쿼터/비용 정책",
+        "query_suffix": '(사용량 OR 한도 OR quota OR "usage limit" OR "share usage" OR 버그 OR 누수 OR 인상 OR 삭감 OR 초기화)',
+        "score_weight": 9
+    },
+    "OPENSOURCE_WEIGHTS": {
+        "label": "🛠️ 오픈소스/가중치/보안",
+        "query_suffix": '(가중치 OR weights OR MoE OR LoRA OR JailbreakBench OR MaliciousInstruct OR "검열 완화" OR 탈옥 OR 오픈웨이트)',
+        "score_weight": 8
+    },
+    "AGENT_STANDARD": {
+        "label": "⚡ 에이전트 표준 & 인프라",
+        "query_suffix": '(MCP OR WebMCP OR 에이전트 OR 표준 OR API OR 서브에이전트 OR 자동화)',
+        "score_weight": 8
+    },
+    "HOT_DEALS": {
+        "label": "💰 실시간 특가 & 역대가",
+        "query_suffix": '(역대가 OR 최저가 OR 반값 OR 핫딜 OR 대란 OR 특가 OR 세일 OR 쿠폰 OR 라방)',
+        "score_weight": 7
+    }
+}
 
 
 def send_discord(title: str, text: str, color: int = 0xFF6B00) -> bool:
@@ -50,7 +98,7 @@ def send_discord(title: str, text: str, color: int = 0xFF6B00) -> bool:
                 "description": text[:4000],
                 "color": color,
                 "footer": {
-                    "text": f"dori bot • {now_korea}"
+                    "text": f"dori bot v6.0 • CHOI Style • {now_korea}"
                 }
             }
         ]
@@ -60,7 +108,7 @@ def send_discord(title: str, text: str, color: int = 0xFF6B00) -> bool:
         req = urllib.request.Request(
             DISCORD_WEBHOOK_URL,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "User-Agent": "DoriBot/4.5"}
+            headers={"Content-Type": "application/json", "User-Agent": "DoriBot/6.0"}
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status in (200, 204)
@@ -102,64 +150,99 @@ def send_broadcast(title: str, text: str, chat_id: str = None) -> bool:
     return discord_ok or telegram_ok
 
 
-def harvest_2_stage_verification(keyword: str) -> list[dict]:
-    """1차 공식/SNS 속보 수집 ➔ 2차 언론 교차검증 파이프라인."""
+def harvest_radar_worker(radar_key: str, radar_info: dict, clean_kw: str) -> list[dict]:
+    """단일 레이더 비동기 수집 워커."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8"
     }
+    signals = []
+    queries_to_try = [
+        f"{clean_kw} {radar_info['query_suffix']} when:7d",
+        f"{clean_kw} {radar_info['query_suffix']}"
+    ]
 
-    raw_signals = []
+    for query in queries_to_try:
+        url = f"https://news.google.com/rss/search?q={urllib.parse.quote(query)}&hl=ko&gl=KR&ceid=KR:ko"
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                root = ET.fromstring(resp.read())
+                items = root.findall('.//item')
+                if items:
+                    for item in items[:4]:
+                        raw_t = item.findtext('title', '')
+                        link = item.findtext('link', '')
+                        pub_date_str = item.findtext('pubDate', '')
+                        source = item.findtext('source', '') or radar_info['label']
+                        clean_t = html.unescape(raw_t.rsplit(' - ', 1)[0].strip() if ' - ' in raw_t else raw_t)
+                        
+                        signals.append({
+                            "title": f"[{source}] {clean_t}",
+                            "link": link,
+                            "source": f"{radar_info['label']} ({source})",
+                            "pubDate": pub_date_str,
+                            "score": radar_info["score_weight"]
+                        })
+                    break
+        except Exception:
+            continue
+    return signals
+
+
+def harvest_5_way_radar(keyword: str) -> list[dict]:
+    """CHOI 스타일 5대 이슈 탐지 레이더 병렬 수집 파이프라인."""
     clean_kw = re.sub(r'^(지금|오늘|최신|실시간|에 대한|에대해|말이야|같은거)\s*', '', keyword).strip() or keyword
     clean_kw = re.sub(r'(말이야|같은거|알려줘|어때|추천해줘)$', '', clean_kw).strip() or clean_kw
 
-    is_deal_query = any(w in keyword for w in ["특가", "가격", "텐트", "할인", "대란", "구매", "장비", "세일", "역대가"])
+    raw_signals = []
 
-    # --- STAGE 1: 1차 관문 (공식 발표 / SNS 속보 / 신규 출시 우선 탐색) ---
-    try:
-        q_stage1 = f"{clean_kw} (공식 OR 출시 OR X OR 트위터 OR 스레드 OR 신규 OR 특가) when:7d"
-        url1 = f"https://news.google.com/rss/search?q={urllib.parse.quote(q_stage1)}&hl=ko&gl=KR&ceid=KR:ko"
-        req = urllib.request.Request(url1, headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            root = ET.fromstring(resp.read())
-            for item in root.findall('.//item')[:6]:
-                raw_t = item.findtext('title', '')
-                link = item.findtext('link', '')
-                source = item.findtext('source', '') or '공식/속보'
-                clean_t = html.unescape(raw_t.rsplit(' - ', 1)[0].strip() if ' - ' in raw_t else raw_t)
-                raw_signals.append({
-                    "title": f"[{source}] {clean_t}",
-                    "link": link,
-                    "source": f"⚡ 1차 팩트 ({source})",
-                    "stage": 1,
-                    "score": 10
-                })
-    except Exception as e:
-        print(f"[!] Stage 1 공식 수집 에러: {e}")
+    # 5대 레이더 병렬 실행
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [
+            executor.submit(harvest_radar_worker, r_key, r_info, clean_kw)
+            for r_key, r_info in ISSUE_RADARS.items()
+        ]
+        for f in as_completed(futures):
+            try:
+                res = f.result()
+                if res:
+                    raw_signals.extend(res)
+            except Exception:
+                pass
 
-    # --- STAGE 2: 2차 관문 (언론사 교차 검증 & 심층 보도) ---
-    try:
-        q_stage2 = f"{clean_kw} when:7d"
-        url2 = f"https://news.google.com/rss/search?q={urllib.parse.quote(q_stage2)}&hl=ko&gl=KR&ceid=KR:ko"
-        req = urllib.request.Request(url2, headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            root = ET.fromstring(resp.read())
-            for item in root.findall('.//item')[:6]:
-                raw_t = item.findtext('title', '')
-                link = item.findtext('link', '')
-                source = item.findtext('source', '') or '언론 검증'
-                clean_t = html.unescape(raw_t.rsplit(' - ', 1)[0].strip() if ' - ' in raw_t else raw_t)
-                raw_signals.append({
-                    "title": f"[{source}] {clean_t}",
-                    "link": link,
-                    "source": f"📰 2차 언론검증 ({source})",
-                    "stage": 2,
-                    "score": 8
-                })
-    except Exception as e:
-        print(f"[!] Stage 2 언론 검증 에러: {e}")
+    # 일반 검색 및 백업
+    if len(raw_signals) < 2:
+        backup_queries = [
+            f"{clean_kw} when:7d",
+            f"{clean_kw} 최신",
+            clean_kw
+        ]
+        for b_q in backup_queries:
+            try:
+                backup_url = f"https://news.google.com/rss/search?q={urllib.parse.quote(b_q)}&hl=ko&gl=KR&ceid=KR:ko"
+                req = urllib.request.Request(backup_url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    root = ET.fromstring(resp.read())
+                    items = root.findall('.//item')
+                    for item in items[:6]:
+                        raw_t = item.findtext('title', '')
+                        link = item.findtext('link', '')
+                        source = item.findtext('source', '') or '실시간 팩트'
+                        clean_t = html.unescape(raw_t.rsplit(' - ', 1)[0].strip() if ' - ' in raw_t else raw_t)
+                        raw_signals.append({
+                            "title": f"[{source}] {clean_t}",
+                            "link": link,
+                            "source": f"📰 실시간 팩트 ({source})",
+                            "pubDate": "",
+                            "score": 6
+                        })
+                    if len(raw_signals) >= 2:
+                        break
+            except Exception:
+                continue
 
-    # --- 3-TIER DEDUPLICATION & RELEVANCE FILTER ---
+    # 3-Tier Deduplication & Relevance Filtering
     seen_links = set()
     seen_titles = []
     filtered = []
@@ -171,8 +254,7 @@ def harvest_2_stage_verification(keyword: str) -> list[dict]:
             return False
         return (len(w1 & w2) / len(w1 | w2)) > 0.65
 
-    # Sort so Stage 1 primary facts are processed first
-    raw_signals.sort(key=lambda x: (x.get('stage', 2), -x.get('score', 0)))
+    raw_signals.sort(key=lambda x: -x.get('score', 0))
 
     for s in raw_signals:
         if s['link'] in seen_links:
@@ -184,41 +266,41 @@ def harvest_2_stage_verification(keyword: str) -> list[dict]:
         seen_titles.append(s['title'])
         filtered.append(s)
 
-    return filtered[:6]
+    return filtered[:8]
 
 
 def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
     """Gemini 2.5 Flash를 활용한 CHOI (@choi.openai) 스타일 4단 연쇄 스레드 큐레이션."""
     today_str = datetime.now().strftime('%m월 %d일')
 
-    data_context = f"사용자 원문 질문: {topic}\n수집된 1차 공식 발표 및 2차 교차검증 데이터:\n"
+    data_context = f"사용자 원문 질문/키워드: {topic}\n수집된 5대 레이더 팩트체크 데이터:\n"
     if items:
         for idx, it in enumerate(items, 1):
             data_context += f"{idx}. [{it['source']}] {it['title']} (URL: {it['link']})\n"
     else:
-        data_context += "(최근 실시간 데이터 수집 분석 중)"
+        data_context += f"(키워드 [{topic}] 관련 실시간 5대 레이더 데이터 수집 분석 중)"
 
     prompt = f"""
 당신은 대한민국 최고의 AI/테크/핫딜 수석 팩트 큐레이터 '도리(Dori)'입니다.
 현재 시점은 **2026년 8월 말**입니다.
-사용자의 질문: "{topic}"
+사용자의 질문/키워드: "{topic}"
 
-아래 수집된 [1차 공식 팩트]와 [2차 언론 교차검증 데이터]를 철저히 대조 분석하여, Threads 30만 팔로워 인플루언서 CHOI (@choi.openai) 스타일의 [4단 연쇄 스레드 포맷]으로 작성하세요.
-절대로 단순 기사 요약이나 상투적인 문장에 머물지 말고, 최근 8월 공개된 최신 버전(GLM-5.3-Flash 가중치 수정, Claude Code 사용량 삭감/인상 괴리, WebMCP 표준화 등)의 핵심 스펙, 비용(1/10 절감 등), 원인 메커니즘, 실질 체감 수치를 직관적으로 폭로하고 분석하세요.
+아래 수집된 [5대 이슈 레이더 데이터]를 철저히 대조 분석하여, Threads 30만 팔로워 인플루언서 CHOI (@choi.openai) 스타일의 [4단 연쇄 스레드 포맷]으로 작성하세요.
+절대로 거절하거나 "데이터가 부족하다"고 하지 말고, 주제에 대해 공개된 최신 팩트, 스펙, 가격/한도 변화, 시장 영향을 알기 쉽게 4단 포맷으로 완성하세요.
 
 [🚨 CHOI 스타일 4단 엄격 작성 규칙]
-1. 제목: 세련되고 전문적인 주제명 (예: 🔥 [Claude Code 주간 사용량 25% '인상'의 숨겨진 진실 • {today_str}])
+1. 제목: 세련되고 전문적인 주제명 (예: 🔥 [{topic} 이슈 심층 분석: 공식 발표와 실제 체감 • {today_str}])
 2. [📌 메인 본문 (Hook & 핵심 요약)]:
-   • 1행 훅: 공식 발표의 허점/역발상 또는 사용자의 손실/의문을 찌르는 강렬한 첫 문장 (예: "앤트로픽이 사용량을 늘린다고 발표했지만, 실제로는 줄어듭니다.")
+   • 1행 훅: 공식 발표의 허점/역발상 또는 사용자의 손실/의문을 찌르는 강렬한 첫 문장 (예: "앤트로픽이 사용량을 늘린다고 발표했지만, 실제로는 줄어듭니다." / "특가로 알려졌지만 실제 가격 변동폭은 다릅니다.")
    • 사건의 핵심 팩트와 반전 2~3줄 요약 (모바일 1문장 1줄바꿈)
    • "표현은 A이지만 결국 B인 셈입니다" 형식의 촌철살인 총평.
-3. [💬 댓글 1 | 기술 메커니즘 & 원인 딥다이브]:
-   • 본문에서 다루지 못한 구체적인 기술 스펙, 내부 아키텍처, 버그 발생 지점, 가중치 수정 등의 원리를 3~4문장으로 딥다이브.
+3. [💬 댓글 1 | 기술/스펙 메커니즘 딥다이브]:
+   • 본문에서 다루지 못한 구체적인 기술 스펙, 내부 아키텍처, 버그 발생 지점, 재질/스펙 차이 등의 원리를 3~4문장으로 딥다이브.
 4. [💬 댓글 2 | 실사용자 체감 수치 환산 & 영향도]:
-   • 복잡한 퍼센티지를 '100 기준 직관적 정수 환산' (예: 기본 100 기준 기존 150 -> 변경 후 125 = 17% 삭감)
-   • 실무 개발자/사용자에게 미치는 영향과 구체적인 대응 지침 제시.
+   • 복잡한 퍼센티지나 가격을 '100 기준 직관적 정수 환산' 또는 '실질 가격/비용 대비 체감 비교'
+   • 실무 개발자/소비자에게 미치는 영향과 구체적인 대응 지침 제시.
 5. [💬 댓글 3 | 공식 출처 & 원문 링크]:
-   • 수집 데이터 중 1차 공식 발표를 가장 정확히 다룬 실제 기사/원문 링크 1개 (URL만).
+   • 수집 데이터 중 1차 공식 발표 또는 대표 기사/원문 링크 1개 (URL만).
 6. 인사말이나 서론 없이 곧바로 '🔥 [' 로 시작할 것.
 
 [수집된 실시간 데이터]
@@ -234,9 +316,9 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
 
 표현은 {{A}}이지만, 결국 {{B}}인 셈입니다.
 
-💬 [댓글 1 | 기술 메커니즘 딥다이브]
-내부 구조와 기술적 원인은 이렇습니다.
-• {{구체적 아키텍처, 버그 지점, 가중치/로직 변경 사항 2~3줄}}
+💬 [댓글 1 | 기술/스펙 메커니즘 딥다이브]
+내부 구조와 핵심 원인은 이렇습니다.
+• {{구체적 아키텍처, 스펙, 가중치/로직/가격 변경 사항 2~3줄}}
 
 💬 [댓글 2 | 체감 수치 환산 & 실무 영향]
 실제 체감 기준으로 계산하면:
@@ -278,7 +360,7 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
                 if "🔥 [" in clean_res:
                     clean_res = clean_res[clean_res.find("🔥 ["):]
                 return clean_res.strip()
-        except Exception as e:
+        except Exception:
             continue
 
     return generate_offline_card_news(topic, items)
@@ -302,7 +384,7 @@ def generate_offline_card_news(topic: str, items: list[dict]) -> str:
 
 표현은 '단순 업데이트'이지만, 결국 실사용자 워크플로우 전반이 바뀌는 셈입니다.
 
-💬 [댓글 1 | 기술 메커니즘 딥다이브]
+💬 [댓글 1 | 기술/스펙 메커니즘 딥다이브]
 내부 구조와 핵심 원인은 이렇습니다.
 • {html.unescape(top_title)}
 • 관련 아키텍처 및 세부 데이터 처리 파이프라인 최적화가 적용되었습니다.
@@ -314,13 +396,14 @@ def generate_offline_card_news(topic: str, items: list[dict]) -> str:
 
 💬 [댓글 3 | 공식 출처]
 🔗 {top_link}"""
+    return feed
 
 
 def run_full_doribogo(topic: str) -> str:
-    """수집 ➔ 가공 ➔ 4단계 브리핑 생성 파이프라인."""
-    print(f"[*] 도리보고 2-Stage 교차검증 수집 가동: [{topic}]")
-    items = harvest_2_stage_verification(topic)
-    print(f"[*] {len(items)}개 검증 시그널 포착 완료. Gemini 2.5 Flash 심층 큐레이션 중...")
+    """5대 레이더 수집 ➔ 가공 ➔ CHOI 4단 스레드 브리핑 생성 파이프라인."""
+    print(f"[*] 도리보고 5-Way Issue Radar 가동: [{topic}]")
+    items = harvest_5_way_radar(topic)
+    print(f"[*] {len(items)}개 검증 시그널 포착 완료. Gemini 2.5 Flash CHOI 스레드 큐레이션 중...")
     card_news = generate_gemini_card_news(topic, items)
     return card_news
 
@@ -328,7 +411,7 @@ def run_full_doribogo(topic: str) -> str:
 def main():
     today_str = datetime.now().strftime('%m월 %d일')
     print("=" * 60)
-    print("🐯 dori bot 2-Stage 순차 교차검증 엔진 시작")
+    print("🐯 dori bot v6.0.0 (CHOI @choi.openai Style Thread Curation Engine)")
     print(f"• 오늘 날짜: {today_str}")
     print(f"• 감시 키워드: {', '.join(WATCH_KEYWORDS)}")
     print("=" * 60)
