@@ -44,8 +44,14 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-WATCH_KEYWORDS = ["백컨트리 360", "캠핑 텐트 특가"]
+WATCH_KEYWORDS = ["AI 모델 최신 이슈", "OpenAI Claude 신규 업데이트"]
 
+# 한국 시간(KST) 기준 아침 09:00 (UTC 00:00) & 저녁 18:00 (UTC 09:00)
+from datetime import time as dt_time, timezone as dt_timezone
+SCHEDULE_TIMES = [
+    dt_time(hour=0, minute=0, tzinfo=dt_timezone.utc),
+    dt_time(hour=9, minute=0, tzinfo=dt_timezone.utc),
+]
 
 @bot.event
 async def on_ready():
@@ -54,8 +60,8 @@ async def on_ready():
     print("• 자연어 호출: '도리야 [질문]', '호도리야 [질문]', @봇 멘션")
     print("• 명령어 접두사: !도리, !ai, !도움말")
     print("=" * 60)
-    if not auto_radar_loop.is_running():
-        auto_radar_loop.start()
+    if not auto_daily_briefing_loop.is_running():
+        auto_daily_briefing_loop.start()
 
 
 # --- 자연어 메시지 리스너 ("도리야 ~", "호도리야 ~", @멘션) ---
@@ -219,40 +225,47 @@ async def help_cmd(ctx):
     await ctx.send(embed=embed)
 
 
-@tasks.loop(minutes=30)
-async def auto_radar_loop():
-    """30분 주기 정기 자동 브리핑."""
+@tasks.loop(time=SCHEDULE_TIMES)
+async def auto_daily_briefing_loop():
+    """매일 2회(아침 9시 & 저녁 6시) 정기 AI 이슈 브리핑 자동 발송."""
     if not DISCORD_CHANNEL_ID:
+        # DISCORD_CHANNEL_ID가 설정되지 않은 경우 참여 중인 첫 번째 텍스트 채널 탐색
+        target_channel = None
+        for guild in bot.guilds:
+            for ch in guild.text_channels:
+                if ch.permissions_for(guild.me).send_messages:
+                    target_channel = ch
+                    break
+            if target_channel:
+                break
+    else:
+        target_channel = bot.get_channel(int(DISCORD_CHANNEL_ID))
+
+    if not target_channel:
         return
 
     try:
-        channel = bot.get_channel(int(DISCORD_CHANNEL_ID))
-        if not channel:
-            return
-
         today_str = datetime.now().strftime("%m월 %d일")
         loop = asyncio.get_event_loop()
 
         for kw in WATCH_KEYWORDS:
             card = await loop.run_in_executor(None, doribogo_bot.run_full_doribogo, kw)
             embed = discord.Embed(
-                title=f"⚡ [{today_str} 실시간 이슈] {kw}",
+                title=f"🔥 [{today_str} 정기 AI 이슈 브리핑] {kw}",
                 description=card,
                 color=0xFF6B00
             )
-            embed.set_footer(text=f"hodori bot • {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-            await channel.send(embed=embed)
+            embed.set_footer(text=f"hodori bot • CHOI Style • {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            await target_channel.send(embed=embed)
             await asyncio.sleep(2)
 
     except Exception as e:
-        print(f"[!] 30분 정기 브리핑 에러: {e}")
+        print(f"[!] 정기 AI 브리핑 에러: {e}")
 
 
-@auto_radar_loop.before_loop
+@auto_daily_briefing_loop.before_loop
 async def before_loop():
     await bot.wait_until_ready()
-
-
 def main():
     if not DISCORD_BOT_TOKEN:
         print("❌ DISCORD_BOT_TOKEN이 설정되지 않았습니다.")
