@@ -241,9 +241,9 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
     ]
 
-    last_err_msg = ""
     for endpoint_url in endpoints_to_try:
         url = f"{endpoint_url}?key={GEMINI_API_KEY}"
+        model_tag = endpoint_url.split('/models/')[-1].split(':')[0]
         try:
             req = urllib.request.Request(
                 url,
@@ -257,14 +257,17 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
             try:
                 err_body = e.read().decode("utf-8")
                 err_json = json.loads(err_body)
-                last_err_msg = err_json.get("error", {}).get("message", str(e))
+                err_desc = err_json.get("error", {}).get("message", str(e))
+                print(f"[!] Model {model_tag} HTTP {e.code}: {err_desc}")
             except Exception:
-                last_err_msg = str(e)
+                err_desc = str(e)
+                print(f"[!] Model {model_tag} HTTP error: {e}")
+            last_err_msg = f"{model_tag} ({e.code}): {err_desc}"
             continue
         except Exception as e:
+            print(f"[!] Model {model_tag} unexpected error: {e}")
             last_err_msg = str(e)
             continue
-
     print(f"[!] Gemini 호출 실패 ({last_err_msg}) ➔ 오프라인 레이더 카드뉴스로 자동 렌더링")
     return generate_offline_card_news(topic, items, error_note=last_err_msg)
 
