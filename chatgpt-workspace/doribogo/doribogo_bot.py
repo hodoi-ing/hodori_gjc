@@ -226,6 +226,13 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
 │ 💾 도움 됐다면 [저장 💾] & [공유 🚀]                   │
 └────────────────────────────────────────────────────────┘
 """
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 1200,
+        }
+    }
 
     models_to_try = [
         "gemini-1.5-flash",
