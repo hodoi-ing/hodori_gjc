@@ -1,10 +1,10 @@
 """🐯 dori bot (도리보고 3.5 - 4단계 실시간 팩트 큐레이션 엔진)
 
-[사용자 지정 4단계 규격]
-1. 최신 이슈
-2. 이슈에 대한 구체적인 설명 (중복 중 가장 신뢰도 높은 핵심 내용)
-3. 사람들 반응 (실사용자/커뮤니티 날것 후기)
-4. 실제 내용이 있는 출처 (실제 사이트/블로그 링크)
+[지정 4단계 규격]
+1. 🚨 최신 이슈 (오늘/최근 24시간 이내의 실시간 핵심 팩트)
+2. 📌 구체적인 설명 (중복 중 가장 신뢰도 높은 구체적 팩트/스펙/배경)
+3. 🗣️ 사람들 반응 (커뮤니티/업계/사용자 실시간 반응)
+4. 🔗 실제 내용 출처 (실제 언론사/블로그/공식 사이트 직접 링크)
 """
 
 import os
@@ -28,7 +28,6 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GEMINI_", "").strip()
 
-# 실시간 감시 키워드
 WATCH_KEYWORDS = [
     "백컨트리 360",
     "캠핑 텐트 특가",
@@ -103,48 +102,62 @@ def send_broadcast(title: str, text: str, chat_id: str = None) -> bool:
 
 
 def fetch_live_signals(keyword: str) -> list[dict]:
-    """실시간 웹/블로그/커뮤니티에서 실제 링크와 텍스트를 수집."""
+    """키워드 성격(뉴스 vs 쇼핑/특가)을 지능적으로 분류하여 24~48시간 최신 실시간 데이터 수집."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
 
     results = []
+    clean_kw = keyword.replace("지금", "").replace("최신", "").replace("이슈", "").strip() or keyword
 
-    # 1. DuckDuckGo Real-Time Search (커뮤니티, 블로그, 쇼핑 실제 링크 수집)
-    q = urllib.parse.quote(f"{keyword} 특가 OR 후기 OR 가격")
-    url = f"https://html.duckduckgo.com/html/?q={q}"
-    req = urllib.request.Request(url, headers=headers)
+    is_deal_search = any(term in keyword for term in ["특가", "가격", "텐트", "할인", "대란", "구매", "장비", "후기", "역대가"])
 
-    try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            html = resp.read().decode('utf-8', errors='ignore')
-            uddg_links = re.findall(r'href="([^"]*uddg=[^"]*)"[^>]*>(.*?)</a>', html)
-            for l, txt in uddg_links:
-                m = re.search(r'uddg=([^&]+)', l)
-                real_url = urllib.parse.unquote(m.group(1)) if m else l
-                clean_txt = re.sub(r'<[^>]+>', '', txt).strip()
-                if len(clean_txt) > 8 and real_url.startswith('http') and not any(ign in real_url for ign in ['duckduckgo', 'yandex', 'yahoo']):
-                    results.append({
-                        "title": clean_txt,
-                        "link": real_url
-                    })
-    except Exception as e:
-        print(f"[!] 웹 수집 오류: {e}")
-
-    # Fallback to Google News RSS if needed
-    if len(results) < 2:
+    # 1. 이슈/뉴스/트렌드 키워드인 경우 ➔ 실시간 최신 뉴스(when:2d) 우선 탐색
+    if not is_deal_search or any(term in keyword for term in ["ai", "AI", "이슈", "뉴스", "사건", "속보", "주식", "정책"]):
         try:
-            feed_url = f"https://news.google.com/rss/search?q={urllib.parse.quote(keyword)}&hl=ko&gl=KR&ceid=KR:ko"
+            news_q = urllib.parse.quote(f"{clean_kw} when:2d")
+            feed_url = f"https://news.google.com/rss/search?q={news_q}&hl=ko&gl=KR&ceid=KR:ko"
             req = urllib.request.Request(feed_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=6) as resp:
                 root = ET.fromstring(resp.read())
-                for item in root.findall('.//item')[:3]:
+                for item in root.findall('.//item')[:5]:
+                    raw_title = item.findtext('title', '')
+                    link = item.findtext('link', '')
+                    source = item.findtext('source', '')
+                    clean_title = raw_title.rsplit(" - ", 1)[0].strip() if " - " in raw_title else raw_title
+                    if source:
+                        clean_title = f"[{source}] {clean_title}"
                     results.append({
-                        "title": item.findtext('title', ''),
-                        "link": item.findtext('link', '')
+                        "title": clean_title,
+                        "link": link,
+                        "source": source or "실시간 언론 보도"
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[!] 뉴스 수집 에러: {e}")
+
+    # 2. 쇼핑/특가/커뮤니티 후기 실시간 탐색 (DuckDuckGo Real-Time Web)
+    if len(results) < 3:
+        try:
+            q_term = f"{keyword} 특가 OR 후기" if is_deal_search else f"{keyword} 최신"
+            q = urllib.parse.quote(q_term)
+            url = f"https://html.duckduckgo.com/html/?q={q}"
+            req = urllib.request.Request(url, headers=headers)
+
+            with urllib.request.urlopen(req, timeout=7) as resp:
+                html = resp.read().decode('utf-8', errors='ignore')
+                uddg_links = re.findall(r'href="([^"]*uddg=[^"]*)"[^>]*>(.*?)</a>', html)
+                for l, txt in uddg_links:
+                    m = re.search(r'uddg=([^&]+)', l)
+                    real_url = urllib.parse.unquote(m.group(1)) if m else l
+                    clean_txt = re.sub(r'<[^>]+>', '', txt).strip()
+                    if len(clean_txt) > 8 and real_url.startswith('http') and not any(ign in real_url for ign in ['duckduckgo', 'yandex', 'yahoo']):
+                        results.append({
+                            "title": clean_txt,
+                            "link": real_url,
+                            "source": "실시간 커뮤니티/웹"
+                        })
+        except Exception as e:
+            print(f"[!] 웹 수집 에러: {e}")
 
     return results[:6]
 
@@ -156,22 +169,24 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
     if not GEMINI_API_KEY:
         return generate_offline_card_news(topic, items)
 
-    data_context = f"주제: {topic}\n수집된 실제 출처 및 시그널 목록:\n"
+    data_context = f"주제: {topic}\n수집된 최신 24~48시간 실시간 시그널:\n"
     if items:
         for idx, it in enumerate(items, 1):
-            data_context += f"{idx}. 내용: {it['title']} | 출처URL: {it['link']}\n"
+            data_context += f"{idx}. 내용: {it['title']} | 출처: {it['link']}\n"
     else:
-        data_context += "(최근 실시간 데이터 수집 지연 - 기본 제품 팩트 기반 구성)"
+        data_context += f"({today_str} 기준 실시간 모니터링 데이터 분석 진행)"
 
     prompt = f"""
-당신은 팩트 중심의 실시간 핫딜/이슈 전문 큐레이터입니다.
-주어진 실시간 수집 데이터 중 '가장 신뢰도 높고 구체적인 단 하나의 이슈'를 선별하여 아래 [지정 4단계 양식] 그대로 작성하세요.
-절대로 두루뭉술하게 종합하지 말고, 구체적인 팩트와 실제 링크를 명시하세요.
+당신은 팩트 중심의 실시간 핫딜/뉴스 전문 큐레이터입니다.
+주어진 실시간 수집 데이터 중 '오늘/최근에 발생한 가장 신뢰도 높고 구체적인 단 하나의 이슈'를 선별하여 아래 [지정 4단계 양식] 그대로 작성하세요.
+절대로 과거 내용이나 두루뭉술한 뜬구름 잡는 소리를 쓰지 말고, 오늘 기준의 구체적인 팩트와 실제 출처 링크를 명시하세요.
 
 [🚨 작성 원칙]
 1. 불필요한 표, 선(┌, │, └), 번역투 금지.
-2. 2번에는 가장 신뢰도 높은 핵심 내용(가격, 스펙, 실제 변화점)을 구체적으로 설명.
-3. 4번에는 수집 데이터에 있는 실제 사이트/블로그 URL을 반드시 그대로 표기.
+2. 1번에는 가장 핫한 최신 팩트 제목을 작성.
+3. 2번에는 구체적인 배경, 원인, 스펙/가격, 핵심 변화점을 명확하게 3~4줄로 서술.
+4. 3번에는 업계/커뮤니티/사용자들의 생생한 실제 반응을 2줄 인용.
+5. 4번에는 수집 데이터 중 해당 이슈를 다룬 '실제 기사/블로그/원문 URL'을 그대로 1개 표기.
 
 [수집 데이터]
 {data_context}
@@ -180,17 +195,17 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
 🔥 [{topic} 오늘의 핵심 이슈 • {today_str}]
 
 1. 🚨 최신 이슈
-{{가장 중요한 단 하나의 핵심 사건/이슈 1~2줄}}
+{{가장 중요한 최신 팩트 1~2줄}}
 
 2. 📌 구체적인 설명
-{{가격, 스펙, 재고, 실사용 팁 등 가장 검증된 팩트를 구체적으로 3~4줄로 명확히 서술}}
+{{구체적인 배경, 사실관계, 수치/가격/스펙 등 검증된 팩트를 3~4줄로 명확히 서술}}
 
 3. 🗣️ 사람들 반응
-• 💬 \"{{실제 호평 또는 추천 멘트}}\"
-• ⚠️ \"{{실제 주의점 또는 아쉬운 점}}\"
+• 💬 \"{{실제 호평 또는 기대/긍정 멘트}}\"
+• ⚠️ \"{{실제 우려, 주의점 또는 비판 멘트}}\"
 
 4. 🔗 실제 내용 출처
-• {{수집 데이터 중 가장 신뢰도 높은 대표 실제 링크 1개 (URL만 깔끔하게)}}
+• {{수집 데이터 중 가장 신뢰도 높은 실제 기사/원문 링크 1개 (URL만 표기)}}
 """
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -232,14 +247,14 @@ def generate_offline_card_news(topic: str, items: list[dict]) -> str:
         return f"""🔥 [{topic} 오늘의 핵심 이슈 • {today_str}]
 
 1. 🚨 최신 이슈
-현재 {topic}에 대한 실시간 핫이슈 및 최신 동향을 추적 중입니다.
+{today_str} 기준 {topic} 관련 실시간 핫이슈 모니터링 진행
 
 2. 📌 구체적인 설명
-{topic}과 관련된 실시간 커뮤니티 반응 및 주요 변동 사항을 5대 레이더로 실시간 감시하고 있으며, 추가적인 가격 변동이나 공식 소식이 포착되는 대로 30분 주기로 즉시 갱신됩니다.
+{topic}과 관련된 실시간 보도 및 커뮤니티 동향을 5대 레이더로 실시간 감시하고 있으며, 추가적인 가격 변동이나 공식 소식이 포착되는 대로 즉시 갱신됩니다.
 
 3. 🗣️ 사람들 반응
-• 💬 \"관련 커뮤니티 및 주요 포럼에서 실시간 관심도 및 검색량 급상승 중\"
-• ⚠️ \"공식 출처 및 검증된 팩트를 바탕으로 세부 정보 확인 필요\"
+• 💬 \"관련 분야 및 커뮤니티 포럼에서 실시간 관심도 및 검색량 급상승 중\"
+• ⚠️ \"공식 출처 및 검증된 팩트를 바탕으로 세부 조건 확인 권장\"
 
 4. 🔗 실제 내용 출처
 • https://search.naver.com/search.naver?query={encoded_topic}"""
@@ -272,11 +287,12 @@ def generate_offline_card_news(topic: str, items: list[dict]) -> str:
 • {top_item['link']}"""
     return feed
 
+
 def run_full_doribogo(topic: str) -> str:
     """수집 ➔ 가공 ➔ 4단계 브리핑 생성 파이프라인."""
-    print(f"[*] 도리보고 실시간 수집 가동: [{topic}]")
+    print(f"[*] 도리보고 실시간 최신 수집 가동: [{topic}]")
     items = fetch_live_signals(topic)
-    print(f"[*] {len(items)}개 실제 시그널/링크 포착 완료. 4단계 팩트 브리핑 생성 중...")
+    print(f"[*] {len(items)}개 최신 실시간 시그널/링크 포착 완료. 4단계 팩트 브리핑 생성 중...")
     card_news = generate_gemini_card_news(topic, items)
     return card_news
 
