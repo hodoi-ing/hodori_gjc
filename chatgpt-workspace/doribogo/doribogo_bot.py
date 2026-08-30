@@ -233,17 +233,17 @@ def generate_gemini_card_news(topic: str, items: list[dict]) -> str:
         }
     }
 
-    models_to_try = [
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash",
-        "gemini-2.0-flash-exp",
-        "gemini-1.5-pro",
-        "gemini-pro"
+    endpoints_to_try = [
+        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
     ]
 
     last_err_msg = ""
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+    for endpoint_url in endpoints_to_try:
+        url = f"{endpoint_url}?key={GEMINI_API_KEY}"
         try:
             req = urllib.request.Request(
                 url,
