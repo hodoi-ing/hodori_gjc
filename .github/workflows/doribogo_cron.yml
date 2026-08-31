@@ -2,14 +2,13 @@ name: 🐯 dori bot 정기 AI 이슈 브리핑 (아침 9시 & 저녁 6시)
 
 on:
   schedule:
-    # 한국 시간 기준 매일 아침 09:00 (UTC 00:00), 저녁 18:00 (UTC 09:00)
     - cron: '0 0,9 * * *'
   workflow_dispatch:
 
 jobs:
   doribogo-radar:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     steps:
       - name: 📥 1. 코드 체크아웃
@@ -24,7 +23,7 @@ jobs:
         run: |
           pip install requests python-dotenv
 
-      - name: 🛰️ 4. CHOI 스타일 5대 레이더 가동 & AI 이슈 브리핑 발송
+      - name: 🛰️ 4. Discovery → 5-Way Harvest → Verification → AI 브리핑
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -37,17 +36,26 @@ jobs:
           from datetime import datetime
           sys.path.append('.')
           import doribogo_bot
+          from chatgpt_workspace.doribogo import research_engine
 
           doribogo_bot.DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL', '')
           doribogo_bot.TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
           doribogo_bot.TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
           doribogo_bot.GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
+          # Source tree is not packaged; import the engine directly by path.
+          import importlib.util
+          spec = importlib.util.spec_from_file_location('doribogo_research_engine', 'chatgpt-workspace/doribogo/research_engine.py')
+          engine = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(engine)
+
           today_str = datetime.now().strftime('%m월 %d일')
           ai_keywords = ['AI 모델 최신 이슈', 'OpenAI Claude 최신 소식']
           for kw in ai_keywords:
-              print(f'[*] 최신 AI 이슈 4단 스레드 브리핑 가동: {kw}')
-              card = doribogo_bot.run_full_doribogo(kw)
+              result = engine.run_doribogo_research(kw)
+              evidence = result['evidence']
+              card = doribogo_bot.generate_gemini_card_news(kw, evidence[:8])
               doribogo_bot.send_broadcast(f'🔥 [{today_str} 정기 AI 브리핑] {kw}', card)
-          print('[*] 아침/저녁 정기 AI 브리핑 발송 완료!')
+              print(f'[*] {kw}: visited={len(result["visited"])} evidence={len(evidence)} verified={result["answered"]}')
+          print('[*] Discovery → Harvest → Verification 브리핑 완료!')
           "
