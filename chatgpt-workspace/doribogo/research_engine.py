@@ -60,3 +60,8 @@ def run_research(goal: str, *, harvest: Callable[[str],Iterable[Mapping[str,Any]
 def summarize_research(state: ResearchState)->dict[str,Any]:
     answered,score,verification=verify_evidence(state.evidence,core_question=state.goal)
     return {"goal":state.goal,"answered":answered,"verification_score":score,"verification":verification,"evidence":state.evidence,"visited":state.visited,"decisions":state.decisions,"research_path":state.frontier.history}
+
+def run_doribogo_research(topic: str) -> dict[str, Any]:
+    """Adapter connecting the generic loops to Doribogo's 5-Way Radar."""
+    from doribogo_bot import harvest_5_way_radar
+    return summarize_research(run_research(topic, harvest=harvest_5_way_radar))
