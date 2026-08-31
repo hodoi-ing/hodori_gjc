@@ -36,14 +36,12 @@ jobs:
           from datetime import datetime
           sys.path.append('.')
           import doribogo_bot
-          from chatgpt_workspace.doribogo import research_engine
 
           doribogo_bot.DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL', '')
           doribogo_bot.TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
           doribogo_bot.TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
           doribogo_bot.GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
-          # Source tree is not packaged; import the engine directly by path.
           import importlib.util
           spec = importlib.util.spec_from_file_location('doribogo_research_engine', 'chatgpt-workspace/doribogo/research_engine.py')
           engine = importlib.util.module_from_spec(spec)
