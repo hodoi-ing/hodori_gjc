@@ -54,6 +54,8 @@ jobs:
               evidence = result['evidence']
               card = doribogo_bot.generate_gemini_card_news(kw, evidence[:8])
               sent = doribogo_bot.send_broadcast(f'🔥 [{today_str} 정기 AI 브리핑] {kw}', card)
-              print(f'[*] {kw}: visited={len(result["visited"])} evidence={len(evidence)} verified={result["answered"]} sent={sent}')
+              visited_n = len(result['visited'])
+              verified = result['answered']
+              print(f'[*] {kw}: visited={visited_n} evidence={len(evidence)} verified={verified} sent={sent}')
           print('[*] Discovery → Harvest → Verification 브리핑 완료!')
           "
