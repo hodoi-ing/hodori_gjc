@@ -42,10 +42,10 @@ jobs:
           doribogo_bot.TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', '')
           doribogo_bot.GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
-          import importlib.util
-          spec = importlib.util.spec_from_file_location('doribogo_research_engine', 'chatgpt-workspace/doribogo/research_engine.py')
-          engine = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(engine)
+          # 패키지 컨텍스트로 로드해야 research_engine 내부의 relative import와
+          # autonomous_discovery.py 의 @dataclass 가 정상 동작한다 (standalone importlib 로드 시 실패).
+          sys.path.insert(0, 'chatgpt-workspace')
+          from doribogo import research_engine as engine
 
           today_str = datetime.now().strftime('%m월 %d일')
           ai_keywords = ['AI 모델 최신 이슈', 'OpenAI Claude 최신 소식']
@@ -53,7 +53,7 @@ jobs:
               result = engine.run_doribogo_research(kw)
               evidence = result['evidence']
               card = doribogo_bot.generate_gemini_card_news(kw, evidence[:8])
-              doribogo_bot.send_broadcast(f'🔥 [{today_str} 정기 AI 브리핑] {kw}', card)
-              print(f'[*] {kw}: visited={len(result["visited"])} evidence={len(evidence)} verified={result["answered"]}')
+              sent = doribogo_bot.send_broadcast(f'🔥 [{today_str} 정기 AI 브리핑] {kw}', card)
+              print(f'[*] {kw}: visited={len(result["visited"])} evidence={len(evidence)} verified={result["answered"]} sent={sent}')
           print('[*] Discovery → Harvest → Verification 브리핑 완료!')
           "
